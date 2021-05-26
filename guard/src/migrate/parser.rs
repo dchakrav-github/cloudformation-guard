@@ -109,10 +109,10 @@ impl Display for BaseRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.custom_message {
             Some(message) => {
-                write!(f, "%{}.{} <<{}>>", self.type_name.to_lowercase().replace("::", "_"), self.property_comparison, message)
+                write!(f, "{} <<{}>>", self.property_comparison, message)
             },
             None => {
-                write!(f, "%{}.{}", self.type_name.to_lowercase().replace("::", "_"), self.property_comparison)
+                write!(f, "{}", self.property_comparison)
             }
         }
     }
@@ -126,9 +126,9 @@ pub(crate) struct ConditionalRule {
 }
 impl Display for ConditionalRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "when %{}[ {} ] not EMPTY {{", self.type_name.to_lowercase().replace("::", "_"), self.when_condition);
-        writeln!(f, "\t\t%{}[ {} ].{}", self.type_name.to_lowercase().replace("::", "_"), self.when_condition, self.check_condition);
-        write!(f, "\t}}")
+        writeln!(f, "when {} {{", self.when_condition);
+        writeln!(f, "            {}", self.check_condition);
+        writeln!(f, "        }}")
     }
 }
 
@@ -157,6 +157,8 @@ impl Display for Clause {
         write!(f, "{}", result.join(" or "))
     }
 }
+
+impl Eq for Clause {}
 
 #[derive(Debug, PartialEq, Clone, Hash)]
 pub(crate) enum RuleLineType {

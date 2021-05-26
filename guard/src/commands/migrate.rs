@@ -4,14 +4,15 @@ use clap::{App, Arg, ArgMatches};
 use crate::command::Command;
 use crate::commands::files::read_file_content;
 use crate::rules::Result;
-use crate::migrate::parser::{parse_rules_file, RuleLineType, Rule};
+use crate::migrate::parser::{parse_rules_file, RuleLineType, Rule, Clause};
 use std::fs::File;
 use std::fmt::Write as FmtWrite;
 use std::io::Write as IoWrite;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use crate::rules::errors::{Error, ErrorKind};
 use std::path::PathBuf;
 use std::str::FromStr;
+use itertools::Itertools;
 
 #[cfg(test)]
 #[path = "migrate_tests.rs"]
@@ -64,7 +65,9 @@ impl Command for Migrate {
                         Err(e)
                     },
                     Ok(rules) => {
-                        let migrated_rules = migrate_rules(rules)?;
+                        // let migrated_rules = migrate_rules(rules)?;
+                        let aggr_by_type = aggregate_by_type(&rules);
+                        let migrated_rules = migrated_rules_by_type(&rules, &aggr_by_type)?;
                         let span = crate::rules::parser::Span::new_extra(&migrated_rules, "");
                         match crate::rules::parser::rules_file(span) {
                             Ok(_rules) => {
@@ -81,6 +84,53 @@ impl Command for Migrate {
             }
         }
     }
+}
+
+pub(crate) fn migrated_rules_by_type(rules: &[RuleLineType],
+                                     by_type: &HashMap<String, indexmap::IndexSet<&Clause>>) -> Result<String> {
+    let mut migrated = String::new();
+    for rule in rules {
+        if let RuleLineType::Assignment(assignment) = rule {
+            writeln!(&mut migrated, "{}", assignment);
+        }
+    }
+
+    let mut types = by_type.keys().map(|elem| elem.clone()).collect_vec();
+    types.sort();
+    for each_type in &types {
+        let snake_cased_name = each_type.to_lowercase().replace("::", "_");
+        writeln!(&mut migrated, "let {} = Resources.*[ Type == \"{}\" ]", snake_cased_name, each_type);
+        writeln!(&mut migrated, "rule {name}_checks WHEN %{name} NOT EMPTY {{", name=snake_cased_name);
+        writeln!(&mut migrated, "    %{} {{", snake_cased_name);
+        for each_clause in by_type.get(each_type).unwrap() {
+            writeln!(&mut migrated, "        {}", *each_clause);
+        }
+        writeln!(&mut migrated, "    }}\n}}\n");
+    }
+
+    Ok(migrated)
+}
+
+pub(crate) fn aggregate_by_type(rules: &Vec<RuleLineType>) -> HashMap<String, indexmap::IndexSet<&Clause>> {
+    let mut by_type = HashMap::with_capacity(rules.len());
+    for rule in rules {
+        if let RuleLineType::Clause(clause) = rule {
+            for each in &clause.rules {
+                match each {
+                    Rule::Basic(br) => {
+                        by_type.entry(br.type_name.clone()).or_insert(indexmap::IndexSet::new())
+                            .insert(clause);
+                    },
+                    Rule::Conditional(br) => {
+                        by_type.entry(br.type_name.clone()).or_insert(indexmap::IndexSet::new())
+                            .insert(clause);
+                    }
+                }
+
+            }
+        }
+    }
+    by_type
 }
 
 pub (crate) fn get_resource_types_in_ruleset(rules: &Vec<RuleLineType>) -> Result<Vec<String>> {
