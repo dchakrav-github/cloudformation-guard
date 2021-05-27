@@ -48,7 +48,7 @@ pub(crate) struct Assignment {
 
 impl Display for Assignment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "\tlet {} = {}", self.var_name, self.value)
+        write!(f, "let {} = {}", self.var_name, self.value)
     }
 }
 

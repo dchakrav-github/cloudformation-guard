@@ -66,8 +66,9 @@ impl Command for Migrate {
                     },
                     Ok(rules) => {
                         // let migrated_rules = migrate_rules(rules)?;
-                        let aggr_by_type = aggregate_by_type(&rules);
-                        let migrated_rules = migrated_rules_by_type(&rules, &aggr_by_type)?;
+                        let (aggr_by_type, mixed_type_clauses) = aggregate_by_type(&rules);
+                        let migrated_rules = migrate_rules_by_type(&rules, &aggr_by_type)?;
+                        let migrated_rules= format!("{}\n{}", migrated_rules, handle_mixed_types_rule(&mixed_type_clauses)?);
                         let span = crate::rules::parser::Span::new_extra(&migrated_rules, "");
                         match crate::rules::parser::rules_file(span) {
                             Ok(_rules) => {
@@ -86,8 +87,8 @@ impl Command for Migrate {
     }
 }
 
-pub(crate) fn migrated_rules_by_type(rules: &[RuleLineType],
-                                     by_type: &HashMap<String, indexmap::IndexSet<&Clause>>) -> Result<String> {
+pub(crate) fn migrate_rules_by_type(rules: &[RuleLineType],
+                                    by_type: &HashMap<String, indexmap::IndexSet<&Clause>>) -> Result<String> {
     let mut migrated = String::new();
     for rule in rules {
         if let RuleLineType::Assignment(assignment) = rule {
@@ -111,56 +112,60 @@ pub(crate) fn migrated_rules_by_type(rules: &[RuleLineType],
     Ok(migrated)
 }
 
-pub(crate) fn aggregate_by_type(rules: &Vec<RuleLineType>) -> HashMap<String, indexmap::IndexSet<&Clause>> {
-    let mut by_type = HashMap::with_capacity(rules.len());
-    for rule in rules {
-        if let RuleLineType::Clause(clause) = rule {
-            for each in &clause.rules {
-                match each {
+pub(crate) fn handle_mixed_types_rule(rules: &indexmap::IndexSet<&Clause>) -> Result<String> {
+    let mut mixed_rules = String::new();
+    if !rules.is_empty() {
+        writeln!(&mut mixed_rules, "rule mixed_types_checks {{");
+        for (idx, each) in rules.iter().enumerate() {
+            for (idx, inner_rule) in each.rules.iter().enumerate() {
+                match inner_rule {
                     Rule::Basic(br) => {
-                        by_type.entry(br.type_name.clone()).or_insert(indexmap::IndexSet::new())
-                            .insert(clause);
+                        let snake_case_name = br.type_name.to_lowercase().replace("::", "_");
+                        writeln!(&mut mixed_rules, "    WHEN %{name} NOT EMPTY {{", name=snake_case_name);
+                        writeln!(&mut mixed_rules, "        {}", br);
+                        write!(&mut mixed_rules, "    }}");
                     },
-                    Rule::Conditional(br) => {
-                        by_type.entry(br.type_name.clone()).or_insert(indexmap::IndexSet::new())
-                            .insert(clause);
+                    Rule::Conditional(cr) => {
+                        let snake_case_name = cr.type_name.to_lowercase().replace("::", "_");
+                        writeln!(&mut mixed_rules, "    WHEN %{name} NOT EMPTY {{", name=snake_case_name);
+                        writeln!(&mut mixed_rules, "        {}", cr);
+                        write!(&mut mixed_rules, "    }}");
                     }
                 }
+                if idx != each.rules.len() - 1 {
+                    writeln!(&mut mixed_rules, " OR ");
+                }
+            }
+            writeln!(&mut mixed_rules, "\n");
+        }
+        writeln!(&mut mixed_rules, "}}");
+    }
+    Ok(mixed_rules)
+}
 
+fn all_rules_are_same_type(rules: &[Rule]) -> (bool, Option<String>) {
+    let mut set = rules.iter().map(|r| match r {
+        Rule::Basic(br) => br.type_name.clone(),
+        Rule::Conditional(cr) => cr.type_name.clone()
+    }).collect::<indexmap::IndexSet<String>>();
+    (set.len() == 1, Some(set.pop().unwrap()))
+}
+
+pub(crate) fn aggregate_by_type(rules: &Vec<RuleLineType>) -> (HashMap<String, indexmap::IndexSet<&Clause>>, indexmap::IndexSet<&Clause>) {
+    let mut by_type = HashMap::with_capacity(rules.len());
+    let mut mixed_type_clauses = indexmap::IndexSet::new();
+    for rule in rules {
+        if let RuleLineType::Clause(clause) = rule {
+            match all_rules_are_same_type(&clause.rules) {
+                (true, Some(name)) => {
+                    by_type.entry(name).or_insert(indexmap::IndexSet::new()).insert(clause);
+                },
+
+                (_, _) => {
+                    mixed_type_clauses.insert(clause);
+                }
             }
         }
     }
-    by_type
-}
-
-pub (crate) fn get_resource_types_in_ruleset(rules: &Vec<RuleLineType>) -> Result<Vec<String>> {
-    let mut resource_types = HashSet::new();
-    for rule in rules {
-        if let RuleLineType::Clause(clause) = rule.clone() {
-            clause.rules.into_iter().for_each(|rule|
-                match rule {
-                    Rule::Basic(basic_rule) => { resource_types.insert(basic_rule.type_name); },
-                    Rule::Conditional(conditional_rule) => { resource_types.insert(conditional_rule.type_name); }
-                }
-            );
-        }
-    }
-    let mut resource_types_list = resource_types.into_iter().collect::<Vec<_>>();
-    resource_types_list.sort();
-    Ok(resource_types_list)
-}
-
-pub (crate) fn migrate_rules(rules: Vec<RuleLineType>) -> Result<String> {
-    let mut migrated_rules = String::new();
-    let resource_types = get_resource_types_in_ruleset(&rules).unwrap();
-    // write assignments for every resource type
-    writeln!(&mut migrated_rules, "rule migrated_rules {{")?;
-    for resource_type in resource_types {
-        writeln!(&mut migrated_rules, "\tlet {} = Resources.*[ Type == \"{}\" ]", resource_type.to_lowercase().replace("::", "_"), resource_type)?;
-    }
-    for rule in rules {
-        writeln!(&mut migrated_rules, "\t{}", rule)?;
-    }
-    writeln!(&mut migrated_rules, "}}")?;
-    Ok(migrated_rules)
+    (by_type, mixed_type_clauses)
 }
