@@ -182,10 +182,9 @@ impl Display for RuleLineType {
 
 // variable-dereference =  ("%" variable) / ("%{" variable "}" ); Regular and environment variables, respectively
 pub (crate) fn parse_variable_dereference(input: Span) -> IResult<Span, String> {
-    preceded(space0, alt((
+    delimited(space0, alt((
         delimited(tag("%{"), var_name, tag("}")),
-        var_name_access
-    )))(input)
+        var_name_access)), space0)(input)
 }
 
 // take until "<<" if a custom message exists in the rule. otherwise, take until end of rule ("|OR|" or rest of span)

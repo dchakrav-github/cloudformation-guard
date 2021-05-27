@@ -13,6 +13,8 @@ use crate::rules::errors::{Error, ErrorKind};
 use std::path::PathBuf;
 use std::str::FromStr;
 use itertools::Itertools;
+use std::collections::hash_map::Keys;
+use indexmap::set::IndexSet;
 
 #[cfg(test)]
 #[path = "migrate_tests.rs"]
@@ -65,10 +67,7 @@ impl Command for Migrate {
                         Err(e)
                     },
                     Ok(rules) => {
-                        // let migrated_rules = migrate_rules(rules)?;
-                        let (aggr_by_type, mixed_type_clauses) = aggregate_by_type(&rules);
-                        let migrated_rules = migrate_rules_by_type(&rules, &aggr_by_type)?;
-                        let migrated_rules= format!("{}\n{}", migrated_rules, handle_mixed_types_rule(&mixed_type_clauses)?);
+                        let migrated_rules = migrate_rules(&rules)?;
                         let span = crate::rules::parser::Span::new_extra(&migrated_rules, "");
                         match crate::rules::parser::rules_file(span) {
                             Ok(_rules) => {
@@ -85,6 +84,13 @@ impl Command for Migrate {
             }
         }
     }
+}
+
+fn migrate_rules(rules: &Vec<RuleLineType>) -> Result<String> {
+    let (aggr_by_type, mixed_type_clauses) = aggregate_by_type(&rules);
+    let migrated_rules = migrate_rules_by_type(&rules, &aggr_by_type)?;
+    Ok(format!("{}\n{}", migrated_rules, handle_mixed_types_rule(
+        aggr_by_type.keys().map(|s| s.to_string()).collect::<HashSet<String>>(), &mixed_type_clauses)?))
 }
 
 pub(crate) fn migrate_rules_by_type(rules: &[RuleLineType],
@@ -112,9 +118,32 @@ pub(crate) fn migrate_rules_by_type(rules: &[RuleLineType],
     Ok(migrated)
 }
 
-pub(crate) fn handle_mixed_types_rule(rules: &indexmap::IndexSet<&Clause>) -> Result<String> {
+pub(crate) fn handle_mixed_types_rule(types_addressed: HashSet<String>,
+                                      rules: &indexmap::IndexSet<&Clause>) -> Result<String> {
+    let mut types_to_be_addressed = HashSet::with_capacity(types_addressed.len());
     let mut mixed_rules = String::new();
     if !rules.is_empty() {
+        for each in rules {
+            for rule in &each.rules {
+                match rule {
+                    Rule::Basic(br) => {
+                        if !types_addressed.contains(&br.type_name) {
+                            types_to_be_addressed.insert(br.type_name.clone());
+                        }
+                    },
+                    Rule::Conditional(cr) => {
+                        if !types_addressed.contains(&cr.type_name) {
+                            types_to_be_addressed.insert(cr.type_name.clone());
+                        }
+                    },
+                };
+            }
+        }
+        for each_type in types_to_be_addressed {
+            let snake_cased_name = each_type.to_lowercase().replace("::", "_");
+            writeln!(&mut mixed_rules, "let {} = Resources.*[ Type == \"{}\" ]", snake_cased_name, each_type);
+        }
+
         writeln!(&mut mixed_rules, "rule mixed_types_checks {{");
         for (idx, each) in rules.iter().enumerate() {
             for (idx, inner_rule) in each.rules.iter().enumerate() {
@@ -122,18 +151,22 @@ pub(crate) fn handle_mixed_types_rule(rules: &indexmap::IndexSet<&Clause>) -> Re
                     Rule::Basic(br) => {
                         let snake_case_name = br.type_name.to_lowercase().replace("::", "_");
                         writeln!(&mut mixed_rules, "    WHEN %{name} NOT EMPTY {{", name=snake_case_name);
-                        writeln!(&mut mixed_rules, "        {}", br);
+                        writeln!(&mut mixed_rules, "        %{name} {{", name=snake_case_name);
+                        writeln!(&mut mixed_rules, "            {}", br);
+                        writeln!(&mut mixed_rules, "          }}");
                         write!(&mut mixed_rules, "    }}");
                     },
                     Rule::Conditional(cr) => {
                         let snake_case_name = cr.type_name.to_lowercase().replace("::", "_");
                         writeln!(&mut mixed_rules, "    WHEN %{name} NOT EMPTY {{", name=snake_case_name);
-                        writeln!(&mut mixed_rules, "        {}", cr);
+                        writeln!(&mut mixed_rules, "        %{name} {{", name=snake_case_name);
+                        writeln!(&mut mixed_rules, "            {}", cr);
+                        writeln!(&mut mixed_rules, "        }}");
                         write!(&mut mixed_rules, "    }}");
                     }
                 }
                 if idx != each.rules.len() - 1 {
-                    writeln!(&mut mixed_rules, " OR ");
+                    writeln!(&mut mixed_rules, "  OR");
                 }
             }
             writeln!(&mut mixed_rules, "\n");
