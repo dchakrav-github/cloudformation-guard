@@ -192,14 +192,14 @@ impl Display for RuleLineType {
 // In absence of the logic to strip the white spaces, the string for a variable reference
 // will get incorrectly parsed as a OldGuardValues::Value instead of a OldGuardValues::VariableAccess
 // causing the display to print extra quotes for the variable
-pub (crate) fn parse_variable_dereference(input: Span) -> IResult<Span, String> {
+pub (crate) fn parse_variable_dereference<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, String> {
     delimited(space0, alt((
         delimited(tag("%{"), var_name, tag("}")),
         var_name_access)), space0)(input)
 }
 
 // take until "<<" if a custom message exists in the rule. otherwise, take until end of rule ("|OR|" or rest of span)
-pub(in crate::migrate) fn parse_complete_value(input: Span) -> IResult<Span, Span> {
+pub(in crate::migrate) fn parse_complete_value<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Span<'a, 'b>> {
     let (remaining, rule_remainder) = alt((take_until("|OR|"), rest))(input)?;
     match take_until("<<")(rule_remainder) {
         Ok(_result) => {
@@ -213,13 +213,13 @@ pub(in crate::migrate) fn parse_complete_value(input: Span) -> IResult<Span, Spa
 }
 
 // comment = "#" vchar-sp; Comment line
-pub(in crate::migrate) fn comment(input: Span) ->IResult<Span, String> {
+pub(in crate::migrate) fn comment<'a, 'b>(input: Span<'a, 'b>) ->IResult<'a, 'b, Span<'a, 'b>, String> {
     let (remainder, comment_contents) = preceded(space0, preceded(tag("#"), rest))(input)?;
     Ok((remainder, comment_contents.fragment().to_string()))
 }
 
 // value = json-value / variable_access / bare-string
-pub (in crate::migrate) fn parse_old_guard_value(input:Span) -> IResult<Span, OldGuardValues> {
+pub (in crate::migrate) fn parse_old_guard_value<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, OldGuardValues> {
     // take entire value, then see if we can parse it as a json value/regex/VariableAccess. If not, take value as whitespace trimmed string
     let (remainder, value_span) = parse_complete_value(input)?;
     match all_consuming(alt((
@@ -237,7 +237,7 @@ pub (in crate::migrate) fn parse_old_guard_value(input:Span) -> IResult<Span, Ol
 }
 
 // assignment = %s"let" 1*WSP variable 1*WSP %s"=" 1*WSP assignment-value; Assignment rule.
-pub(crate) fn assignment(input: Span) -> IResult<Span, Assignment> {
+pub(crate) fn assignment<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Assignment> {
     let (input, _let_keyword) = preceded(space0,tag("let"))(input)?;
     let (input, (var_name, _eq_sign)) = tuple((
         //
@@ -264,7 +264,7 @@ pub(crate) fn assignment(input: Span) -> IResult<Span, Assignment> {
 }
 
 // value_operator = "==" / "!=" / "<" / ">" / "<=" / ">=" / %s"IN" / %s"NOT_IN"
-pub(in crate::migrate) fn value_operator(input: Span) -> IResult<Span, CmpOperator> {
+pub(in crate::migrate) fn value_operator<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, CmpOperator> {
     let (input, is_custom_message_start) = peek(opt(value(true,tag("<<"))))(input)?;
     if is_custom_message_start.is_some() {
         return Err(nom::Err::Error(ParserError {
@@ -287,14 +287,14 @@ pub(in crate::migrate) fn value_operator(input: Span) -> IResult<Span, CmpOperat
 
 // returns a string representing the property path. a bit naive as it will accept empty property paths between dots and wildcards next to each other, etc.
 // property-path = ["."] (1*alphanum / wildcard) *("." (1*alphanum / wildcard))
-pub(in crate::migrate) fn property_path(input: Span) -> IResult<Span, String> {
+pub(in crate::migrate) fn property_path<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, String> {
     let (remaining, result) = take_while1(|c: char| c.is_alphanumeric() || c == '.' || c == '*')(input)?;
     Ok((remaining, result.fragment().to_string()))
 }
 
 
 // property-comparison = property-path 1*WSP value-operator 1*WSP value ; Equality comparison
-pub(in crate::migrate) fn property_comparison(input: Span) -> IResult<Span, PropertyComparison> {
+pub(in crate::migrate) fn property_comparison<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, PropertyComparison> {
     // property path
     let (remaining_after_property_path, property_path) = preceded(space0,property_path)(input)?;
     // get operator
@@ -312,7 +312,7 @@ pub(in crate::migrate) fn property_comparison(input: Span) -> IResult<Span, Prop
 // base-rule = resource-type 1*WSP property-comparison [1*WSP output-message];
 // parses line and returns a BaseRule structure with given type name and property comparison
 // optional output message can be specified via "<<"
-pub(in crate::migrate) fn base_rule(input: Span) -> IResult<Span, BaseRule> {
+pub(in crate::migrate) fn base_rule<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, BaseRule> {
     let (remaining_for_comparison, type_name) = preceded(space0, type_name)(input)?;
     let (remaining_for_message, property_comparison) = preceded(space1, property_comparison)(remaining_for_comparison)?;
     match custom_message(remaining_for_message) {
@@ -336,7 +336,7 @@ pub(in crate::migrate) fn base_rule(input: Span) -> IResult<Span, BaseRule> {
 
 // conditional-rule = resource-type 1*WSP %s"WHEN" 1*WSP property-comparison 1*WSP %s"CHECK" 1*WSP property-comparison; Rule that checks values if a certain condition is met.
 //  returns ConditionalRule structure with given property checks and type name
-pub(in crate::migrate) fn conditional_rule(input: Span) -> IResult<Span, ConditionalRule> {
+pub(in crate::migrate) fn conditional_rule<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ConditionalRule> {
     // get resource type name
     let (input, type_name) = preceded(space0, type_name)(input)?;
 
@@ -358,14 +358,14 @@ pub(in crate::migrate) fn conditional_rule(input: Span) -> IResult<Span, Conditi
 
 // output-message = "<<" vchar-sp
 // returns message to be used for output
-pub(in crate::migrate) fn custom_message(input: Span) -> IResult<Span, String> {
+pub(in crate::migrate) fn custom_message<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, String> {
     let (remaining, message) =  preceded(tag("<<"), preceded(space0, alt((take_until("|OR|"), rest))))(input)?;
     return Ok((remaining, message.fragment().trim().to_string()))
 }
 
 // rule = (base-rule / conditional-rule)
 // returns enum value with rule structure
-pub(in crate::migrate) fn rule(input: Span) -> IResult<Span, Rule> {
+pub(in crate::migrate) fn rule<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Rule> {
     alt((
         map(
             conditional_rule, |cond_rule| Rule::Conditional(cond_rule)
@@ -378,20 +378,20 @@ pub(in crate::migrate) fn rule(input: Span) -> IResult<Span, Rule> {
 
 // clause = (rule 1*(%s"|OR|" 1*WSP rule))
 // returns list of rules on line
-pub(in crate::migrate) fn clause(input: Span) -> IResult<Span, Clause> {
+pub(in crate::migrate) fn clause<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Clause> {
     let (remaining_for_message, rules) = separated_nonempty_list(preceded(space0, tag("|OR|")), rule )(input)?;
     Ok((remaining_for_message, Clause { rules }))
 }
 
 // empty line parser
 // used in migration tool to preserve overall spacing of a migrated ruleset
-pub(in crate::migrate) fn empty_line(input: Span) -> IResult<Span, RuleLineType> {
+pub(in crate::migrate) fn empty_line<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, RuleLineType> {
     value(RuleLineType::EmptyLine, all_consuming(space0))(input)
 }
 
 // rule-line = rule / clause / assignment / comment / empty_line
 // returns enum value with underlying rule line structure
-pub(in crate::migrate) fn rule_line(input: Span) ->IResult<Span, RuleLineType> {
+pub(in crate::migrate) fn rule_line<'a, 'b>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, RuleLineType> {
     let (remainder, rule_line) =    alt((
             empty_line,
             map(assignment, |a| RuleLineType::Assignment(a)),

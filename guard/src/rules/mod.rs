@@ -7,6 +7,7 @@ pub(crate) mod path_value;
 pub(crate) mod eval_context;
 pub(crate) mod eval;
 pub(crate) mod display;
+mod loader;
 
 use errors::Error;
 
@@ -17,7 +18,7 @@ use nom::lib::std::convert::TryFrom;
 use crate::rules::errors::ErrorKind;
 use serde::{Serialize};
 use crate::rules::values::CmpOperator;
-use crate::rules::exprs::{QueryPart, GuardAccessClause, ParameterizedRule};
+use crate::rules::exprs::{QueryPart, GuardAccessClause, ParameterizedRule, RulesFile};
 
 pub(crate) type Result<R> = std::result::Result<R, Error>;
 
@@ -260,6 +261,10 @@ pub(crate) enum RecordType<'value> {
 
 struct ParameterRuleResult<'value, 'loc> {
     rule: &'value ParameterizedRule<'loc>
+}
+
+pub(crate) trait PackageLoader<'loc> {
+    fn find_rules_file(&mut self, file: &[String]) -> Result<&RulesFile<'loc>>;
 }
 
 pub(crate) trait EvalContext<'value, 'loc: 'value> {

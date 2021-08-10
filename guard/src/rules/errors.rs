@@ -154,8 +154,8 @@ impl From<std::convert::Infallible> for Error {
 
 use crate::rules::parser::{Span, ParserError};
 
-impl <'a> From<nom::Err<(Span<'a>, nom::error::ErrorKind)>> for Error {
-    fn from(err: nom::Err<(Span<'a>, nom::error::ErrorKind)>) -> Self {
+impl<'a, 'b> From<nom::Err<(Span<'a, 'b>, nom::error::ErrorKind)>> for Error {
+    fn from(err: nom::Err<(Span<'a, 'b>, nom::error::ErrorKind)>) -> Self {
         let msg = match err {
             nom::Err::Incomplete(_) => format!("More bytes required for parsing"),
             nom::Err::Failure((s, _k)) | nom::Err::Error((s, _k)) => {
@@ -168,8 +168,8 @@ impl <'a> From<nom::Err<(Span<'a>, nom::error::ErrorKind)>> for Error {
     }
 }
 
-impl<'a> From<nom::Err<ParserError<'a>>> for Error {
-    fn from(err: nom::Err<ParserError<'a>>) -> Self {
+impl<'a, 'b> From<nom::Err<ParserError<'a, 'b>>> for Error {
+    fn from(err: nom::Err<ParserError<'a, 'b>>) -> Self {
         let msg = match err {
             nom::Err::Failure(e) | nom::Err::Error(e) => format!("Parsing Error {}", e),
             nom::Err::Incomplete(_) => format!("More bytes required for parsing"),

@@ -199,6 +199,7 @@ pub(crate) struct WhenGuardBlockClause<'loc> {
 pub(crate) struct ParameterizedNamedRuleClause<'loc> {
     pub(crate) parameters: Vec<LetValue<'loc>>,
     pub(crate) named_rule: GuardNamedRuleClause<'loc>,
+    pub(crate) package_prefix: Option<Vec<String>>,
 }
 
 #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize, Hash)]

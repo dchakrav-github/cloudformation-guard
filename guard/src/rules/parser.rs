@@ -29,27 +29,27 @@ use crate::migrate::parser::TypeName;
 use crate::rules::path_value::{PathAwareValue, Path};
 use regex::internal::Input;
 
-pub(crate) type Span<'a> = LocatedSpan<&'a str, &'a str>;
+pub(crate) type Span<'a, 'b: 'a> = LocatedSpan<&'a str, &'b str>;
 
 pub(crate) fn from_str2(in_str: &str) -> Span {
     Span::new_extra(in_str, "")
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct ParserError<'a> {
+pub(crate) struct ParserError<'a, 'b: 'a> {
     pub(crate) context: String,
-    pub(crate) span: Span<'a>,
+    pub(crate) span: Span<'a, 'b>,
     pub(crate) kind: nom::error::ErrorKind,
 }
 
-pub(crate) type IResult<'a, I, O> = nom::IResult<I, O, ParserError<'a>>;
+pub(crate) type IResult<'a, 'b: 'a, I, O> = nom::IResult<I, O, ParserError<'a, 'b>>;
 
-impl<'a> ParserError<'a> {
+impl<'a, 'b: 'a> ParserError<'a, 'b> {
     pub(crate) fn context(&self) -> &str {
         &self.context
     }
 
-    pub(crate) fn span(&self) -> &Span<'a> {
+    pub(crate) fn span(&self) -> &Span<'a, 'b> {
         &self.span
     }
 
@@ -58,8 +58,8 @@ impl<'a> ParserError<'a> {
     }
 }
 
-impl<'a> nom::error::ParseError<Span<'a>> for ParserError<'a> {
-    fn from_error_kind(input: Span<'a>, kind: ErrorKind) -> Self {
+impl<'a, 'b: 'a> nom::error::ParseError<Span<'a, 'b>> for ParserError<'a, 'b> {
+    fn from_error_kind(input: Span<'a, 'b>, kind: ErrorKind) -> Self {
         ParserError {
             context: "".to_string(),
             span: input,
@@ -67,11 +67,11 @@ impl<'a> nom::error::ParseError<Span<'a>> for ParserError<'a> {
         }
     }
 
-    fn append(_input: Span<'a>, _kind: ErrorKind, other: Self) -> Self {
+    fn append(_input: Span<'a, 'b>, _kind: ErrorKind, other: Self) -> Self {
         other
     }
 
-    fn add_context(input: Span<'a>, ctx: &'static str, other: Self) -> Self {
+    fn add_context(input: Span<'a, 'b>, ctx: &'static str, other: Self) -> Self {
         let context = if other.context.is_empty() {
             format!("{}", ctx)
         } else {
@@ -86,7 +86,7 @@ impl<'a> nom::error::ParseError<Span<'a>> for ParserError<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for ParserError<'a> {
+impl<'a, 'b: 'a> std::fmt::Display for ParserError<'a, 'b> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let message = format!(
             "Error parsing file {} at line {} at column {}, when handling {}, fragment {}",
@@ -105,7 +105,7 @@ impl<'a> std::fmt::Display for ParserError<'a> {
 //                                                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub(in crate::rules) fn comment2(input: Span) -> IResult<Span, Span> {
+pub(in crate::rules) fn comment2<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Span<'a, 'b>> {
     delimited(char('#'), take_till(|c| c == '\n'), char('\n'))(input)
 }
 //
@@ -117,7 +117,7 @@ pub(in crate::rules) fn comment2(input: Span) -> IResult<Span, Span> {
 // Expected error codes: (remember alt returns the error from the last one)
 //    nom::error::ErrorKind::Char => if the comment does not start with '#'
 //
-pub(in crate::rules) fn white_space_or_comment(input: Span) -> IResult<Span, ()> {
+pub(in crate::rules) fn white_space_or_comment<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ()> {
     value((), alt((
         multispace1,
         comment2
@@ -129,7 +129,7 @@ pub(in crate::rules) fn white_space_or_comment(input: Span) -> IResult<Span, ()>
 // failure when this isn't the case. Consumers of this combinator must use
 // cut or handle it as a failure if that is the right outcome
 //
-pub(in crate::rules) fn one_or_more_ws_or_comment(input: Span) -> IResult<Span, ()> {
+pub(in crate::rules) fn one_or_more_ws_or_comment<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ()> {
     value((), many1(white_space_or_comment))(input)
 }
 
@@ -137,23 +137,23 @@ pub(in crate::rules) fn one_or_more_ws_or_comment(input: Span) -> IResult<Span, 
 // This provides extract for *(LWSP / comment), same as above but this one never
 // errors out
 //
-pub(in crate::rules) fn zero_or_more_ws_or_comment(input: Span) -> IResult<Span, ()> {
+pub(in crate::rules) fn zero_or_more_ws_or_comment<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ()> {
     value((), many0(white_space_or_comment))(input)
 }
 
-pub(in crate::rules) fn white_space(ch: char) -> impl Fn(Span) -> IResult<Span, char> {
+pub(in crate::rules) fn white_space(ch: char) -> impl for<'a, 'b> Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, char> {
     move |input: Span| preceded(zero_or_more_ws_or_comment, char(ch))(input)
 }
 
-pub(in crate::rules) fn preceded_by(ch: char) -> impl Fn(Span) -> IResult<Span, char> {
+pub(in crate::rules) fn preceded_by(ch: char) -> impl for<'a, 'b> Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, char> {
     white_space(ch)
 }
 
-pub(in crate::rules) fn separated_by(ch: char) -> impl Fn(Span) -> IResult<Span, char> {
+pub(in crate::rules) fn separated_by(ch: char) -> impl for<'a, 'b> Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, char> {
     white_space(ch)
 }
 
-pub(in crate::rules) fn followed_by(ch: char) -> impl Fn(Span) -> IResult<Span, char> {
+pub(in crate::rules) fn followed_by(ch: char) -> impl for<'a, 'b> Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, char> {
     white_space(ch)
 }
 
@@ -166,7 +166,7 @@ pub(in crate::rules) fn followed_by(ch: char) -> impl Fn(Span) -> IResult<Span, 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-pub(in crate::rules) fn parse_int_value(input: Span) -> IResult<Span, Value> {
+pub(in crate::rules) fn parse_int_value<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     let negative = map_res(preceded(tag("-"), digit1), |s: Span| {
         s.fragment().parse::<i64>().map(|i| Value::Int(-1 * i))
     });
@@ -176,7 +176,7 @@ pub(in crate::rules) fn parse_int_value(input: Span) -> IResult<Span, Value> {
     alt((positive, negative))(input)
 }
 
-pub(crate) fn parse_string(input: Span) -> IResult<Span, Value> {
+pub(crate) fn parse_string<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     map(
         alt((
             delimited(
@@ -192,13 +192,13 @@ pub(crate) fn parse_string(input: Span) -> IResult<Span, Value> {
     )(input)
 }
 
-fn parse_bool(input: Span) -> IResult<Span, Value> {
+fn parse_bool<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     let true_parser = value(Value::Bool(true), alt((tag("true"), tag("True"))));
     let false_parser = value(Value::Bool(false), alt((tag("false"), tag("False"))));
     alt((true_parser, false_parser))(input)
 }
 
-fn parse_float(input: Span) -> IResult<Span, Value> {
+fn parse_float<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     let whole = digit1(input.clone())?;
     let fraction = opt(preceded(char('.'), digit1))(whole.0)?;
     let exponent = opt(tuple((one_of("eE"), one_of("+-"), digit1)))(fraction.0)?;
@@ -213,7 +213,7 @@ fn parse_float(input: Span) -> IResult<Span, Value> {
     }))
 }
 
-fn parse_regex_inner(input: Span) -> IResult<Span, Value> {
+fn parse_regex_inner<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     let mut regex = String::new();
     let parser = is_not("/");
     let mut span = input;
@@ -234,15 +234,15 @@ fn parse_regex_inner(input: Span) -> IResult<Span, Value> {
     }
 }
 
-fn parse_regex(input: Span) -> IResult<Span, Value> {
+fn parse_regex<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     delimited(char('/'), parse_regex_inner, char('/'))(input)
 }
 
-fn parse_char(input: Span) -> IResult<Span, Value> {
+fn parse_char<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     map(anychar, Value::Char)(input)
 }
 
-fn range_value(input: Span) -> IResult<Span, Value> {
+fn range_value<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     delimited(
         space0,
         alt((parse_float, parse_int_value, parse_char)),
@@ -250,7 +250,7 @@ fn range_value(input: Span) -> IResult<Span, Value> {
     )(input)
 }
 
-fn parse_range(input: Span) -> IResult<Span, Value> {
+fn parse_range<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     let parsed = preceded(
         char('r'),
         tuple((
@@ -293,7 +293,7 @@ fn parse_range(input: Span) -> IResult<Span, Value> {
 //
 // Adding the parser to return scalar values
 //
-fn parse_scalar_value(input: Span) -> IResult<Span, Value> {
+fn parse_scalar_value<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     //
     // IMP: order does matter
     // parse_float is before parse_int. the later can parse only the whole part of the float
@@ -311,7 +311,7 @@ fn parse_scalar_value(input: Span) -> IResult<Span, Value> {
 /// List Values
 ///
 
-fn parse_list(input: Span) -> IResult<Span, Value> {
+fn parse_list<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     map(
         delimited(
             preceded_by('['),
@@ -322,7 +322,7 @@ fn parse_list(input: Span) -> IResult<Span, Value> {
     )(input)
 }
 
-fn key_part(input: Span) -> IResult<Span, String> {
+fn key_part<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, String> {
     alt((
         map(take_while1(|c:char| c.is_alphanumeric() || c == '-' || c == '_'),
             |s: Span| (*s.fragment()).to_string()),
@@ -336,7 +336,7 @@ fn key_part(input: Span) -> IResult<Span, String> {
         })))(input)
 }
 
-fn key_value(input: Span) -> IResult<Span, (String, Value)> {
+fn key_value<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, (String, Value)> {
     separated_pair(
         preceded(zero_or_more_ws_or_comment, key_part),
         followed_by(':'),
@@ -344,7 +344,7 @@ fn key_value(input: Span) -> IResult<Span, (String, Value)> {
     )(input)
 }
 
-fn parse_map(input: Span) -> IResult<Span, Value> {
+fn parse_map<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     let result = delimited(
         char('{'),
         separated_list(separated_by(','), key_value),
@@ -361,11 +361,11 @@ fn parse_map(input: Span) -> IResult<Span, Value> {
     ))
 }
 
-fn parse_null(input: Span) -> IResult<Span, Value> {
+fn parse_null<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     value(Value::Null, alt((tag("null"), tag("NULL"))))(input)
 }
 
-pub(crate) fn parse_value(input: Span) -> IResult<Span, Value> {
+pub(crate) fn parse_value<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Value> {
     preceded(
         zero_or_more_ws_or_comment,
         alt((
@@ -497,7 +497,7 @@ pub(crate) fn parse_value(input: Span) -> IResult<Span, Value> {
 // Expected error codes:
 //    nom::error::ErrorKind::Alpha => if the input does not start with a char
 //
-pub(crate) fn var_name(input: Span) -> IResult<Span, String> {
+pub(crate) fn var_name<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, String> {
     let (remainder, first_part) = alpha1(input)?;
     let (remainder, next_part) = take_while(|c: char| c.is_alphanumeric() || c == '_')(remainder)?;
     let mut var_name = (*first_part.fragment()).to_string();
@@ -516,28 +516,28 @@ pub(crate) fn var_name(input: Span) -> IResult<Span, String> {
 //
 //  see var_name for other error codes
 //
-pub(crate) fn var_name_access(input: Span) -> IResult<Span, String> {
+pub(crate) fn var_name_access<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, String> {
     preceded(char('%'), var_name)(input)
 }
 
 //
 // This version is the same as var_name_access
 //
-fn var_name_access_inclusive(input: Span) -> IResult<Span, String> {
+fn var_name_access_inclusive<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, String> {
     map(var_name_access, |s| format!("%{}", s))(input)
 }
 
 //
 // Comparison operators
 //
-fn in_keyword(input: Span) -> IResult<Span, CmpOperator> {
+fn in_keyword<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, CmpOperator> {
     value(CmpOperator::In, alt((
         tag("in"),
         tag("IN")
     )))(input)
 }
 
-fn not(input: Span) -> IResult<Span, ()> {
+fn not<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ()> {
     match alt((
         preceded(tag("not"), space1),
         preceded(tag("NOT"), space1)))(input) {
@@ -552,29 +552,29 @@ fn not(input: Span) -> IResult<Span, ()> {
     }
 }
 
-fn eq(input: Span) -> IResult<Span, (CmpOperator, bool)> {
+fn eq<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, (CmpOperator, bool)> {
     alt((
         value((CmpOperator::Eq, false), tag("==")),
         value((CmpOperator::Eq, true), tag("!=")),
     ))(input)
 }
 
-fn keys(input: Span) -> IResult<Span, ()> {
+fn keys<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ()> {
     value((), alt((
         tag("KEYS"),
         tag("keys")))
     )(input)
 }
 
-fn exists(input: Span) -> IResult<Span, CmpOperator> {
+fn exists<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, CmpOperator> {
     value(CmpOperator::Exists, alt((tag("EXISTS"), tag("exists"))))(input)
 }
 
-fn empty(input: Span) -> IResult<Span, CmpOperator> {
+fn empty<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, CmpOperator> {
     value(CmpOperator::Empty, alt((tag("EMPTY"), tag("empty"))))(input)
 }
 
-fn other_operations(input: Span) -> IResult<Span, (CmpOperator, bool)> {
+fn other_operations<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, (CmpOperator, bool)> {
     let (input, not) = opt(not)(input)?;
     let (input, operation) = alt((
         in_keyword,
@@ -585,32 +585,32 @@ fn other_operations(input: Span) -> IResult<Span, (CmpOperator, bool)> {
     Ok((input, (operation, not.is_some())))
 }
 
-fn is_list(input: Span) -> IResult<Span, CmpOperator> {
+fn is_list<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, CmpOperator> {
     value( CmpOperator::IsList, alt((
         tag("IS_LIST"),
         tag("is_list"),
     )))(input)
 }
 
-fn is_struct(input: Span) -> IResult<Span, CmpOperator> {
+fn is_struct<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, CmpOperator> {
     value(CmpOperator::IsMap, alt((
         tag("IS_STRUCT"),
         tag("is_struct"),
     )))(input)
 }
 
-fn is_string(input: Span) -> IResult<Span, CmpOperator> {
+fn is_string<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, CmpOperator> {
     value( CmpOperator::IsString, alt((
         tag("IS_STRING"),
         tag("is_string"),
         )))(input)
 }
 
-fn is_type_operations(input: Span) -> IResult<Span, CmpOperator> {
+fn is_type_operations<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, CmpOperator> {
     alt(( is_string, is_list, is_struct ))(input)
 }
 
-fn value_cmp(input: Span) -> IResult<Span, (CmpOperator, bool)> {
+fn value_cmp<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, (CmpOperator, bool)> {
     //
     // This is really crappy as the earlier version used << for custom message
     // delimiter. '<' can be interpreted as Lt comparator.
@@ -644,7 +644,7 @@ fn value_cmp(input: Span) -> IResult<Span, (CmpOperator, bool)> {
     ))(input)
 }
 
-fn extract_message(input: Span) -> IResult<Span, &str> {
+fn extract_message<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, &'a str> {
     match input.find_substring(">>") {
         None => Err(nom::Err::Failure(ParserError {
             span: input,
@@ -658,7 +658,7 @@ fn extract_message(input: Span) -> IResult<Span, &str> {
     }
 }
 
-fn custom_message(input: Span) -> IResult<Span, &str> {
+fn custom_message<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, &'a str> {
     delimited(tag("<<"), extract_message, tag(">>"))(input)
 }
 
@@ -673,7 +673,7 @@ pub(crate) fn does_comparator_have_rhs(op: &CmpOperator) -> bool {
     }
 }
 
-fn predicate_filter_clauses(input: Span) -> IResult<Span, QueryPart> {
+fn predicate_filter_clauses<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, QueryPart<'b>> {
     let (input, _open) = open_array(input)?;
     let (input, filters) = cnf_clauses(
         input, clause, std::convert::identity, true)?;
@@ -681,7 +681,7 @@ fn predicate_filter_clauses(input: Span) -> IResult<Span, QueryPart> {
     Ok((input, QueryPart::Filter(filters)))
 }
 
-fn dotted_property(input: Span) -> IResult<Span, QueryPart> {
+fn dotted_property<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, QueryPart<'b>> {
     preceded(zero_or_more_ws_or_comment,
              preceded(char('.'),
                       alt((
@@ -697,35 +697,35 @@ fn dotted_property(input: Span) -> IResult<Span, QueryPart> {
     )(input)
 }
 
-fn open_array(input: Span) -> IResult<Span, ()> {
+fn open_array<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ()> {
     value((), preceded(zero_or_more_ws_or_comment, char('[')))(input)
 }
 
-fn close_array(input: Span) -> IResult<Span, ()> {
+fn close_array<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ()> {
     value((), preceded(zero_or_more_ws_or_comment, char(']')))(input)
 }
 
-fn all_indices(input: Span) -> IResult<Span, QueryPart> {
+fn all_indices<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, QueryPart<'b>> {
     value(QueryPart::AllIndices,
           delimited(open_array, char('*'), cut(close_array)))
         (input)
 }
 
-fn array_index(input: Span) -> IResult<Span, QueryPart> {
+fn array_index<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, QueryPart<'b>> {
     map(delimited(open_array, parse_int_value, cut(close_array)), |idx| {
         let idx = match idx { Value::Int(i) => i as i32, _ => unreachable!() };
         QueryPart::Index(idx)
     })(input)
 }
 
-fn map_key_lookup(input: Span) -> IResult<Span, QueryPart> {
+fn map_key_lookup<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, QueryPart<'b>> {
     map(delimited(open_array, parse_string, cut(close_array)), |idx| {
         let idx = match idx { Value::String(i) => i, _ => unreachable!() };
         QueryPart::Key(idx)
     })(input)
 }
 
-fn map_keys_match(input: Span) -> IResult<Span, QueryPart> {
+fn map_keys_match<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, QueryPart<'b>> {
     let (input, _open) = open_array(input)?;
     let (input, _keys) = preceded(zero_or_more_ws_or_comment, keys)(input)?;
     let (input, cmp) = cut(
@@ -748,7 +748,7 @@ fn map_keys_match(input: Span) -> IResult<Span, QueryPart> {
     })))
 }
 
-fn predicate_or_index(input: Span) -> IResult<Span, QueryPart> {
+fn predicate_or_index<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, QueryPart<'b>> {
     alt((
         all_indices,
         array_index,
@@ -769,7 +769,7 @@ fn predicate_or_index(input: Span) -> IResult<Span, QueryPart> {
 //
 // see var_name, var_name_access for other error codes
 //
-fn dotted_access(input: Span) -> IResult<Span, Vec<QueryPart>> {
+fn dotted_access<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Vec<QueryPart<'b>>> {
     fold_many1(
         alt((
             dotted_property,
@@ -783,14 +783,14 @@ fn dotted_access(input: Span) -> IResult<Span, Vec<QueryPart>> {
     )(input)
 }
 
-fn property_name(input: Span) -> IResult<Span, String> {
+fn property_name<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, String> {
     alt(( var_name, map(parse_string, |v| match v {
         Value::String(value) => value,
         _ => unreachable!()
     })))(input)
 }
 
-fn some_keyword(input: Span) -> IResult<Span, bool> {
+fn some_keyword<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, bool> {
     value(true, delimited(
         zero_or_more_ws_or_comment,
         alt((tag("SOME"), tag("some"))),
@@ -798,7 +798,7 @@ fn some_keyword(input: Span) -> IResult<Span, bool> {
     ))(input)
 }
 
-fn this_keyword(input: Span) -> IResult<Span, QueryPart> {
+fn this_keyword<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, QueryPart<'b>> {
     preceded(zero_or_more_ws_or_comment,
         alt((
             value(QueryPart::This, tag("this")),
@@ -810,7 +810,7 @@ fn this_keyword(input: Span) -> IResult<Span, QueryPart> {
 //
 //   access     =   (var_name / var_name_access) [dotted_access]
 //
-pub(crate) fn access(input: Span) -> IResult<Span, AccessQuery> {
+pub(crate) fn access<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, AccessQuery<'b>> {
     map(tuple((
         opt(some_keyword),
         alt(
@@ -843,11 +843,13 @@ pub(crate) fn access(input: Span) -> IResult<Span, AccessQuery> {
     })(input)
 }
 
-fn clause_with_map<'loc, A, M, T: 'loc>(input: Span<'loc>,
-                         access: A,
-                         mapper: M) -> IResult<Span<'loc>, T>
-    where A: Fn(Span<'loc>) -> IResult<Span<'loc>, AccessQuery<'loc>>,
-          M: Fn(GuardAccessClause<'loc>) -> T + 'loc
+fn clause_with_map<'a, 'b, A, M, T>(
+    input: Span<'a, 'b>,
+    access: A,
+    mapper: M) -> IResult<'a, 'b, Span<'a, 'b>, T>
+    where A: Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, AccessQuery<'b>>,
+          M: Fn(GuardAccessClause<'b>) -> T,
+          T: 'b
 {
     let location = FileLocation {
         file_name: input.extra,
@@ -919,13 +921,13 @@ fn clause_with_map<'loc, A, M, T: 'loc>(input: Span<'loc>,
     }
 }
 
-fn clause_with<A>(input: Span, access: A) -> IResult<Span, GuardClause>
-    where A: Fn(Span) -> IResult<Span, AccessQuery>
+fn clause_with<'a, 'b, A>(input: Span<'a, 'b>, access: A) -> IResult<'a, 'b, Span<'a, 'b>, GuardClause<'b>>
+    where A: Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, AccessQuery<'b>>
 {
     clause_with_map(input, access, |g| GuardClause::Clause(g))
 }
 
-pub(crate) fn block_clause(input: Span) -> IResult<Span, GuardClause> {
+pub(crate) fn block_clause<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, GuardClause<'b>> {
     let location = FileLocation {
         file_name: input.extra,
         line: input.location_line(),
@@ -947,14 +949,25 @@ pub(crate) fn block_clause(input: Span) -> IResult<Span, GuardClause> {
     })))
 }
 
-pub(crate) fn let_value(input: Span) -> IResult<Span, LetValue> {
+pub(crate) fn let_value<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, LetValue<'b>> {
     alt((
             map(parse_value, |val| LetValue::Value(PathAwareValue::try_from(val).unwrap())),
         map(access, |acc| LetValue::AccessClause(acc)),
         ))(input)
 }
 
-pub(crate) fn parameterized_rule_call_clause(input: Span) -> IResult<Span, ParameterizedNamedRuleClause> {
+pub(crate) fn package_prefix<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Vec<String>> {
+    map(many1(
+        tuple((
+            var_name,
+            tag("::")
+            ))
+    ), |result| {
+        result.into_iter().map(|elem| elem.0).collect::<Vec<String>>()
+    })(input)
+}
+
+pub(crate) fn parameterized_rule_call_clause<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ParameterizedNamedRuleClause<'b>> {
     let mut location = FileLocation {
         file_name: input.extra,
         line: input.location_line(),
@@ -963,6 +976,7 @@ pub(crate) fn parameterized_rule_call_clause(input: Span) -> IResult<Span, Param
 
     let (input, not) = opt(not)(input)?;
     let (input, rule_name) = var_name(input)?;
+    let (input, pkg_prefix) = opt(package_prefix)(input)?;
     let (input, access_clauses) =
         delimited(
             char('('),
@@ -985,7 +999,8 @@ pub(crate) fn parameterized_rule_call_clause(input: Span) -> IResult<Span, Param
                 custom_message: custom_message.map(|s| s.to_string()),
                 negation: not.map_or(false, |_| true),
                 dependent_rule: rule_name
-            }
+            },
+            package_prefix: pkg_prefix
         }
     ))
 }
@@ -1008,7 +1023,7 @@ pub(crate) fn parameterized_rule_call_clause(input: Span) -> IResult<Span, Param
 //     nom::error::ErrorKind::Char  if access / parse_value does not work out
 //
 //
-fn clause(input: Span) -> IResult<Span, GuardClause> {
+fn clause<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, GuardClause<'b>> {
     alt((
         when_block(single_clauses, clause, |conds, (assigns, cls)| {
             GuardClause::WhenBlock(conds, Block {
@@ -1022,7 +1037,7 @@ fn clause(input: Span) -> IResult<Span, GuardClause> {
     ))(input)
 }
 
-fn single_clause(input: Span) -> IResult<Span, WhenGuardClause> {
+fn single_clause<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, WhenGuardClause<'b>> {
     clause_with_map(input, access, |gac| WhenGuardClause::Clause(gac))
 }
 
@@ -1043,7 +1058,7 @@ fn single_clause(input: Span) -> IResult<Span, WhenGuardClause> {
 //
 //      rule_name\s+<<msg>>[ \t\n]+or[ \t\n]+
 //
-fn rule_clause(input: Span) -> IResult<Span, GuardClause> {
+fn rule_clause<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, GuardClause<'b>> {
     let location = FileLocation {
         file_name: input.extra,
         line: input.location_line(),
@@ -1098,8 +1113,9 @@ fn rule_clause(input: Span) -> IResult<Span, GuardClause> {
 //
 // clauses
 //
-fn cnf_clauses<'loc, T, E, F, M>(input: Span<'loc>, f: F, _m: M, _non_empty: bool) -> IResult<Span<'loc>, Conjunctions<E>>
-    where F: Fn(Span<'loc>) -> IResult<Span<'loc>, E>,
+fn cnf_clauses<'span, 'loc, T, E, F, M>(input: Span<'span, 'loc>, f: F, _m: M, _non_empty: bool)
+    -> IResult<'span, 'loc, Span<'span, 'loc>, Conjunctions<E>>
+    where F: Fn(Span<'span, 'loc>) -> IResult<'span, 'loc, Span<'span, 'loc>, E>,
           M: Fn(Vec<E>) -> T,
           E: Clone + 'loc,
           T: 'loc
@@ -1133,9 +1149,12 @@ fn cnf_clauses<'loc, T, E, F, M>(input: Span<'loc>, f: F, _m: M, _non_empty: boo
     }
 }
 
-fn disjunction_clauses<'loc, E, F>(input: Span<'loc>, parser: F, non_empty: bool) -> IResult<Span<'loc>, Disjunctions<E>>
-    where F: Fn(Span<'loc>) -> IResult<Span<'loc>, E>,
-          E: Clone + 'loc,
+fn disjunction_clauses<'span, 'loc, E, F>(
+    input: Span<'span, 'loc>,
+    parser: F,
+    non_empty: bool) -> IResult<'span, 'loc, Span<'span, 'loc>, Disjunctions<E>>
+    where F: Fn(Span<'span, 'loc>) -> IResult<'span, 'loc, Span<'span, 'loc>, E>,
+          E: Clone
 {
     if non_empty {
         separated_nonempty_list(
@@ -1151,7 +1170,7 @@ fn disjunction_clauses<'loc, E, F>(input: Span<'loc>, parser: F, non_empty: bool
     }
 }
 
-fn single_clauses(input: Span) -> IResult<Span, Conjunctions<WhenGuardClause>> {
+fn single_clauses<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Conjunctions<WhenGuardClause<'b>>> {
     cnf_clauses(
         input,
         //
@@ -1182,7 +1201,7 @@ fn single_clauses(input: Span) -> IResult<Span, Conjunctions<WhenGuardClause>> {
         std::convert::identity, false)
 }
 
-fn clauses(input: Span) -> IResult<Span, Conjunctions<GuardClause>> {
+fn clauses<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Conjunctions<GuardClause<'b>>> {
     cnf_clauses(
         input,
         //
@@ -1208,7 +1227,7 @@ fn clauses(input: Span) -> IResult<Span, Conjunctions<GuardClause>> {
         std::convert::identity, false)
 }
 
-fn assignment(input: Span) -> IResult<Span, LetExpr> {
+fn assignment<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, LetExpr<'b>> {
     let (input, _let_keyword) = tag("let")(input)?;
     let (input, (var_name, _eq_sign)) = tuple((
         //
@@ -1259,12 +1278,12 @@ fn assignment(input: Span) -> IResult<Span, LetExpr> {
 //
 // when keyword
 //
-fn when(input: Span) -> IResult<Span, ()> {
+fn when<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ()> {
     value((), alt((tag("when"), tag("WHEN"))))(input)
 }
 
-fn when_conditions<'loc, P>(condition_parser: P) -> impl Fn(Span<'loc>) -> IResult<Span<'loc>, Conjunctions<WhenGuardClause<'loc>>>
-    where P: Fn(Span<'loc>) -> IResult<Span<'loc>, Conjunctions<WhenGuardClause<'loc>>>
+fn when_conditions<'a, 'b: 'a, P>(condition_parser: P) -> impl Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Conjunctions<WhenGuardClause<'b>>>
+    where P: Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Conjunctions<WhenGuardClause<'b>>>
 {
     move |input: Span| {
         //
@@ -1287,9 +1306,9 @@ fn when_conditions<'loc, P>(condition_parser: P) -> impl Fn(Span<'loc>) -> IResu
     }
 }
 
-fn block<'loc, T, P>(clause_parser: P) -> impl Fn(Span<'loc>) -> IResult<Span<'loc>, (Vec<LetExpr<'loc>>, Conjunctions<T>)>
-    where P: Fn(Span<'loc>) -> IResult<Span<'loc>, T>,
-          T: Clone + 'loc
+fn block<'a, 'b: 'a, T, P>(clause_parser: P) -> impl Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, (Vec<LetExpr<'b>>, Conjunctions<T>)>
+    where P: Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, T>,
+          T: Clone + 'b
 {
     move |input: Span| {
         let (input, _start_block) = preceded(zero_or_more_ws_or_comment, char('{'))
@@ -1332,7 +1351,7 @@ fn block<'loc, T, P>(clause_parser: P) -> impl Fn(Span<'loc>) -> IResult<Span<'l
     }
 }
 
-pub(crate) fn type_name(input: Span) -> IResult<Span, TypeName> {
+pub(crate) fn type_name<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, TypeName> {
     match tuple((
         terminated(var_name, tag("::")),
         terminated(var_name, tag("::")),
@@ -1358,7 +1377,7 @@ pub(crate) fn type_name(input: Span) -> IResult<Span, TypeName> {
 //
 // Type block
 //
-fn type_block(input: Span) -> IResult<Span, TypeBlock> {
+fn type_block<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, TypeBlock<'b>> {
     //
     // Start must be a type name like "AWS::SQS::Queue"
     //
@@ -1428,14 +1447,15 @@ fn type_block(input: Span) -> IResult<Span, TypeBlock> {
     }))
 }
 
-fn when_block<'loc, C, B, M, T, R>(conditions: C, block_fn: B, mapper: M) -> impl Fn(Span<'loc>) -> IResult<Span<'loc>, R>
-    where C: Fn(Span<'loc>) -> IResult<Span, Conjunctions<WhenGuardClause<'loc>>>,
-          B: Fn(Span<'loc>) -> IResult<Span<'loc>, T>,
-          T: Clone + 'loc,
-          R: 'loc,
-          M: Fn(Conjunctions<WhenGuardClause<'loc>>, (Vec<LetExpr<'loc>>, Conjunctions<T>)) -> R
+fn when_block<'a, 'b: 'a, C, B, M, T: Clone + 'b, R>(
+    conditions: C,
+    block_fn: B,
+    mapper: M) -> impl Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, R>
+    where C: Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Conjunctions<WhenGuardClause<'b>>>,
+          B: Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, T>,
+          M: Fn(Conjunctions<WhenGuardClause<'b>>, (Vec<LetExpr<'b>>, Conjunctions<T>)) -> R,
 {
-    move |input: Span| {
+    move |input: Span<'_, 'b>| {
         map(preceded(zero_or_more_ws_or_comment,
                      pair(
                          when_conditions(|p| conditions(p)),
@@ -1444,7 +1464,7 @@ fn when_block<'loc, C, B, M, T, R>(conditions: C, block_fn: B, mapper: M) -> imp
     }
 }
 
-fn rule_block_clause(input: Span) -> IResult<Span, RuleClause> {
+fn rule_block_clause<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, RuleClause<'b>> {
     alt((
         map(preceded(zero_or_more_ws_or_comment, type_block), RuleClause::TypeBlock),
         map(preceded(zero_or_more_ws_or_comment,
@@ -1465,7 +1485,7 @@ fn rule_block_clause(input: Span) -> IResult<Span, RuleClause> {
 //
 // rule block
 //
-fn rule_block(input: Span) -> IResult<Span, Rule> {
+fn rule_block<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Rule<'b>> {
     //
     // rule is followed by space
     //
@@ -1490,7 +1510,7 @@ fn rule_block(input: Span) -> IResult<Span, Rule> {
 //
 // parameter names
 //
-fn rule_parameter_names(input: Span) -> IResult<Span, indexmap::IndexSet<String>> {
+fn rule_parameter_names<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, indexmap::IndexSet<String>> {
     delimited(
         char('('),
         map(separated_nonempty_list(char(','),
@@ -1504,7 +1524,7 @@ fn rule_parameter_names(input: Span) -> IResult<Span, indexmap::IndexSet<String>
 //
 // Parameterized Rule
 //
-fn parameterized_rule_block(input: Span) -> IResult<Span, ParameterizedRule> {
+fn parameterized_rule_block<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, ParameterizedRule<'b>> {
     //
     // rule is followed by space
     //
@@ -1526,21 +1546,21 @@ fn parameterized_rule_block(input: Span) -> IResult<Span, ParameterizedRule> {
     }))
 }
 
-fn default_clauses(input: Span) -> IResult<Span, Disjunctions<GuardClause>> {
+fn default_clauses<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Disjunctions<GuardClause<'b>>> {
     let (input, disjunctions) = disjunction_clauses(
         input, clause, true)?;
     Ok((input, disjunctions))
 }
 
 
-fn type_block_clauses(input: Span) -> IResult<Span, Disjunctions<TypeBlock>> {
+fn type_block_clauses<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Disjunctions<TypeBlock<'b>>> {
     let (input, disjunctions) = disjunction_clauses(
         input, type_block, true)?;
     Ok((input, disjunctions))
 }
 
-fn remove_whitespace_comments<'loc, P, R>(parser: P) -> impl Fn(Span<'loc>) -> IResult<Span<'loc>, R>
-    where P: Fn(Span<'loc>) -> IResult<Span<'loc>, R>
+fn remove_whitespace_comments<'a, 'b : 'a, P, R: 'b>(parser: P) -> impl Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, R>
+    where P: Fn(Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, R>
 {
     move |input: Span| {
         delimited(
@@ -1564,7 +1584,7 @@ enum Exprs<'loc> {
 //
 // Rules File
 //
-pub(crate) fn rules_file(input: Span) -> std::result::Result<RulesFile, Error> {
+pub(crate) fn rules_file<'a, 'b: 'a>(input: Span<'a, 'b>) -> std::result::Result<RulesFile<'b>, Error> {
     let exprs = all_consuming(fold_many1(
         remove_whitespace_comments(
             alt((
@@ -1623,7 +1643,7 @@ pub(crate) fn rules_file(input: Span) -> std::result::Result<RulesFile, Error> {
 //
 //  ABNF        = "or" / "OR" / "|OR|"
 //
-fn or_term(input: Span) -> IResult<Span, Span> {
+fn or_term<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Span<'a, 'b>> {
     alt((
         tag("or"),
         tag("OR"),
@@ -1631,7 +1651,7 @@ fn or_term(input: Span) -> IResult<Span, Span> {
     ))(input)
 }
 
-fn or_join(input: Span) -> IResult<Span, Span> {
+fn or_join<'a, 'b: 'a>(input: Span<'a, 'b>) -> IResult<'a, 'b, Span<'a, 'b>, Span<'a, 'b>> {
     delimited(
         zero_or_more_ws_or_comment,
         or_term,
