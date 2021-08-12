@@ -509,6 +509,6 @@ fn test_disjunction_conditional_clauses() {
     );
 }
 
-fn make_empty_span(offset: usize) -> Span<'static> {
+fn make_empty_span(offset: usize) -> Span<'static, 'static> {
     unsafe { Span::new_from_raw_offset(offset, 1, "", "") }
 }

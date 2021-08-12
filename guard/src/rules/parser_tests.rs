@@ -4690,6 +4690,7 @@ fn parameters_guard_clause() -> Result<(), Error> {
 
     let parameterized_guard_clause = ParameterizedNamedRuleClause::try_from(guard_clause)?;
     let expected = ParameterizedNamedRuleClause {
+        package_prefix: None,
         named_rule: GuardNamedRuleClause {
             location: FileLocation {
                 file_name: "",
@@ -4773,6 +4774,7 @@ fn parameters_guard_clause_multiple() -> Result<(), Error> {
 
     let parameterized_guard_clause = ParameterizedNamedRuleClause::try_from(guard_clause)?;
     let expected = ParameterizedNamedRuleClause {
+        package_prefix: None,
         named_rule: GuardNamedRuleClause {
             location: FileLocation {
                 file_name: "",
