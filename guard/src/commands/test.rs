@@ -20,6 +20,7 @@ use serde::{Serialize, Deserialize};
 use itertools::Itertools;
 use crate::rules::eval_context::RecordTracker;
 use crate::rules::eval::eval_rules_file;
+use crate::rules::loader::{FileTracker, Loader};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) struct Test {}
@@ -44,6 +45,7 @@ or failure testing.
 "#)
             .arg(Arg::with_name("rules-file").long("rules-file").short("r").takes_value(true).help("Provide a rules file").required(true))
             .arg(Arg::with_name("test-data").long("test-data").short("t").takes_value(true).help("Provide a file or dir for data files in JSON or YAML").required(true))
+            .arg(Arg::with_name("root-dir").long("root-dir").short("d").takes_value(true).help("Provide a rules location root").required(false))
             .arg(Arg::with_name("new_eval_engine_version").long("new-eval-engine-version").short("n").takes_value(false)
                 .help("uses the new engine for evaluation. This parameter will allow customers to evaluate new changes before migrating"))
             .arg(Arg::with_name("alphabetical").alias("-a").help("Sort alphabetically inside a directory").required(false))
@@ -87,23 +89,40 @@ or failure testing.
             )))
         }
 
+        let root = match app.value_of("root-dir") {
+            Some(root) => PathBuf::try_from(root)?,
+            None => path.clone()
+        };
         let ruleset = vec![path];
-        for rules in iterate_over(&ruleset, |content, file| {
-            Ok((content, file.to_str().unwrap_or("").to_string()))
-        }) {
-            match rules {
-                Err(e) => println!("Unable to read rule file content {}", e),
-                Ok((context, path)) => {
-                    let span = crate::rules::parser::Span::new_extra(&context, &path);
-                    match crate::rules::parser::rules_file(span) {
-                        Err(e) => println!("Parse Error on ruleset file {}", e),
-                        Ok(rules) => {
-                            exit_code = test_with_data(&data_test_files, &rules, verbose, new_engine)?;
-                        }
-                    }
+
+        let tracker = FileTracker::new(root, ruleset.clone());
+        let mut loader = Loader::new(&tracker);
+        for each in ruleset {
+            match loader.find_rules(each) {
+                Err(e) => println!("Parse Error on ruleset file {}", e),
+                Ok(rules) => {
+                    let rules: &RulesFile<'_> = &rules;
+                    exit_code = test_with_data(&data_test_files, rules, verbose, new_engine, &loader)?;
                 }
             }
+
         }
+//        for rules in iterate_over(&ruleset, |content, file| {
+//            Ok((content, file.to_str().unwrap_or("").to_string()))
+//        }) {
+//            match rules {
+//                Err(e) => println!("Unable to read rule file content {}", e),
+//                Ok((context, path)) => {
+//                    let span = crate::rules::parser::Span::new_extra(&context, &path);
+//                    match crate::rules::parser::rules_file(span) {
+//                        Err(e) => println!("Parse Error on ruleset file {}", e),
+//                        Ok(rules) => {
+//                            exit_code = test_with_data(&data_test_files, &rules, verbose, new_engine)?;
+//                        }
+//                    }
+//                }
+//            }
+//        }
         Ok(exit_code)
     }
 }
@@ -120,7 +139,7 @@ struct TestSpec {
     expectations: TestExpectations,
 }
 
-fn test_with_data(test_data_files: &[PathBuf], rules: &RulesFile<'_>, verbose: bool, new_engine: bool) -> Result<i32> {
+fn test_with_data<'l>(test_data_files: &[PathBuf], rules: &RulesFile<'l>, verbose: bool, new_engine: bool, loader: &Loader<'l>) -> Result<i32> {
     let mut exit_code = 0;
     let mut test_counter = 1;
     for specs in iterate_over(test_data_files, |data, path| {
@@ -147,7 +166,7 @@ fn test_with_data(test_data_files: &[PathBuf], rules: &RulesFile<'_>, verbose: b
                     let by_result = if new_engine {
                         let mut by_result = HashMap::new();
                         let root = PathAwareValue::try_from(each.input)?;
-                        let root_scope = crate::rules::eval_context::root_scope(&rules, &root)?;
+                        let root_scope = crate::rules::eval_context::root_scope(&rules, &root, loader)?;
                         let tracer = RecordTracker::new(&root_scope);
                         eval_rules_file(&rules, &tracer)?;
                         let top = tracer.extract();

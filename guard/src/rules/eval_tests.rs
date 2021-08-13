@@ -763,6 +763,12 @@ fn binary_comparisons_lt_le() -> Result<()> {
     Ok(())
 }
 
+struct DummyLoader{}
+impl<'loc> PackageLoader<'loc> for DummyLoader {
+    fn find_rules_file(&self, file: &[String]) -> Result<&RulesFile<'loc>> {
+        todo!()
+    }
+}
 
 #[test]
 fn test_compare_rulegen() -> Result<()> {
@@ -791,7 +797,8 @@ Resources:
     "###;
     let rules = RulesFile::try_from(rulegen_created)?;
     let value = PathAwareValue::try_from(serde_yaml::from_str::<serde_json::Value>(template)?)?;
-    let root = root_scope(&rules, &value)?;
+    let dummy = DummyLoader{};
+    let root = root_scope(&rules, &value, &dummy)?;
     let tracker = RecordTracker::new(&root);
     let status = eval_rules_file(&rules, &tracker)?;
     assert_eq!(status, Status::PASS);
@@ -1076,7 +1083,8 @@ fn variable_projections() -> Result<()> {
       some %policies.Properties.Bucket.Ref not empty
     }
     "#)?;
-    let root_scope = root_scope(&rules_file, &path_value)?;
+    let dummy = DummyLoader{};
+    let root_scope = root_scope(&rules, &path_value, &dummy)?;
     let status = eval_rules_file(&rules_file, &root_scope)?;
     assert_eq!(status, Status::PASS);
 
@@ -1114,7 +1122,8 @@ fn variable_projections_failures() -> Result<()> {
       some %policies.Properties.Bucket.Ref not empty
     }
     "#)?;
-    let root_scope = root_scope(&rules_file, &path_value)?;
+    let dummy = DummyLoader{};
+    let root_scope = root_scope(&rules, &path_value, &dummy)?;
     let tracker = RecordTracker::new(&root_scope);
     let status = eval_rules_file(&rules_file, &tracker)?;
     assert_eq!(status, Status::FAIL); // for s3_bucket_policy_2.Properties.Bucket == ""
@@ -1202,7 +1211,8 @@ fn query_cross_joins() -> Result<()> {
        }
     }
     "#)?;
-    let root_scope = root_scope(&rules_files, &path_value)?;
+    let dummy = DummyLoader{};
+    let root_scope = root_scope(&rules, &path_value, &dummy)?;
     let status = eval_rules_file(&rules_files, &root_scope)?;
     assert_eq!(status, Status::PASS);
 
@@ -1214,7 +1224,7 @@ fn query_cross_joins() -> Result<()> {
        }
     }
     "#)?;
-    let root_scope = super::eval_context::root_scope(&rules_files, &path_value)?;
+    let root_scope = root_scope(&rules, &path_value, &dummy)?;
     let status = eval_rules_file(&rules_files, &root_scope)?;
     assert_eq!(status, Status::SKIP);
 
@@ -1246,7 +1256,7 @@ fn query_cross_joins() -> Result<()> {
        }
     }
     "#)?;
-    let root_scope = super::eval_context::root_scope(&rules_files, &path_value)?;
+    let root_scope = root_scope(&rules, &path_value, &dummy)?;
     let status = eval_rules_file(&rules_files, &root_scope)?;
     assert_eq!(status, Status::FAIL);
 
@@ -1596,7 +1606,7 @@ fn test_multiple_valued_clause_reporting() -> Result<()> {
             self.parent.query(query)
         }
 
-        fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>> {
+        fn find_parameterized_rule(&self, rule_name: &str, package: Option<&Vec<String>>) -> Result<&'value ParameterizedRule<'loc>> {
             todo!()
         }
 

@@ -25,6 +25,7 @@ use crate::rules::eval_context::{RecordTracker, EventRecord, root_scope};
 use crate::rules::eval::eval_rules_file;
 use crate::rules::{ RecordType, NamedStatus };
 use std::collections::HashMap;
+use crate::rules::loader::Loader;
 
 mod generic_summary;
 mod common;
@@ -203,49 +204,91 @@ or rules files.
 
         let base = PathBuf::from_str(file)?;
         let files = get_files(file, cmp)?;
+        let tracer = crate::rules::loader::FileTracker::new(base.clone(), files.clone());
+        let mut loader = crate::rules::loader::Loader::new(&tracer);
         let mut exit_code = 0;
-        for each_file_content in iterate_over(&files, |content, file|
-            Ok((content, match file.strip_prefix(&base) {
+        for file in files {
+            let rule_file_name = match file.strip_prefix(&base) {
                 Ok(path) => if path == empty_path {
                     format!("{}", file.file_name().unwrap().to_str().unwrap())
                 } else { format!("{}", path.display() )},
                 Err(_) => format!("{}", file.display()),
-            }))) {
-            match each_file_content {
-                Err(e) => println!("Unable read content from file {}", e),
-                Ok((file_content, rule_file_name)) => {
-                    let span = crate::rules::parser::Span::new_extra(&file_content, &rule_file_name);
-                    match crate::rules::parser::rules_file(span) {
-                        Err(e) => {
-                            println!("Parsing error handling rule file = {}, Error = {}",
-                                     rule_file_name.underline(), e);
-                            println!("---");
+            };
+            match loader.find_rules(file) {
+                Ok(rules) => {
+                    let rules: &RulesFile<'_> = &rules;
+                    match evaluate_against_data_input(
+                        data_type,
+                        output_type,
+                        &data_files,
+                        rules,
+                        &rule_file_name,
+                        verbose,
+                        print_json,
+                        show_clause_failures,
+                        new_version_eval_engine,
+                        &loader,
+                        summary_type.clone())? {
+                        Status::SKIP | Status::PASS => continue,
+                        Status::FAIL => {
                             exit_code = 5;
-                            continue;
-                        },
-
-                        Ok(rules) => {
-                            match evaluate_against_data_input(
-                                data_type,
-                                output_type,
-                                &data_files,
-                                &rules,
-                                &rule_file_name,
-                                verbose,
-                                print_json,
-                                show_clause_failures,
-                                new_version_eval_engine,
-                                summary_type.clone())? {
-                                Status::SKIP | Status::PASS => continue,
-                                Status::FAIL => {
-                                    exit_code = 5;
-                                }
-                            }
                         }
                     }
-                }
+                },
+
+                Err(e) => {
+                    println!("Parsing error handling rule file = {}, Error = {}",
+                             rule_file_name.underline(), e);
+                    println!("---");
+                    exit_code = 5;
+                    continue;
+                },
             }
         }
+
+//        for each_file_content in iterate_over(&files, |content, file|
+//            Ok((content,
+//                match file.strip_prefix(&base) {
+//                Ok(path) => if path == empty_path {
+//                    format!("{}", file.file_name().unwrap().to_str().unwrap())
+//                } else { format!("{}", path.display() )},
+//                Err(_) => format!("{}", file.display()),
+//            }))) {
+//            match each_file_content {
+//                Err(e) => println!("Unable read content from file {}", e),
+//                Ok((file_content, rule_file_name)) => {
+//                    let span = crate::rules::parser::Span::new_extra(&file_content, &rule_file_name);
+//                    match crate::rules::parser::rules_file(span) {
+//                        Err(e) => {
+//                            println!("Parsing error handling rule file = {}, Error = {}",
+//                                     rule_file_name.underline(), e);
+//                            println!("---");
+//                            exit_code = 5;
+//                            continue;
+//                        },
+//
+//                        Ok(rules) => {
+//                            match evaluate_against_data_input(
+//                                data_type,
+//                                output_type,
+//                                &data_files,
+//                                &rules,
+//                                &rule_file_name,
+//                                verbose,
+//                                print_json,
+//                                show_clause_failures,
+//                                new_version_eval_engine,
+//                                summary_type.clone())? {
+//                                Status::SKIP | Status::PASS => continue,
+//                                Status::FAIL => {
+//                                    exit_code = 5;
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//        }
         Ok(exit_code)
     }
 }
@@ -502,15 +545,16 @@ impl<'r> EvaluationContext for ConsoleReporter<'r> {
 
 }
 
-fn evaluate_against_data_input<'r>(data_type: Type,
+fn evaluate_against_data_input<'r, 'l>(data_type: Type,
                                    output: OutputFormatType,
                                    data_files: &'r [(String, String)],
-                                   rules: &RulesFile<'_>,
+                                   rules: &RulesFile<'l>,
                                    rules_file_name: &'r str,
                                    verbose: bool,
                                    print_json: bool,
                                    show_clause_failures: bool,
                                    new_engine_version: bool,
+                                   loader: &Loader<'l>,
                                    summary_table: BitFlags<SummaryType>) -> Result<Status> {
     let iterator: Result<Vec<(PathAwareValue, &str)>> = data_files.iter().map(|(content, name)|
         match serde_json::from_str::<serde_json::Value>(content) {
@@ -540,7 +584,7 @@ fn evaluate_against_data_input<'r>(data_type: Type,
         }
 
         if new_engine_version {
-            let root_scope = root_scope(&rules, &each)?;
+            let root_scope = root_scope(&rules, &each, loader)?;
             let tracker = RecordTracker::new(&root_scope);
             let status = eval_rules_file(rules, &tracker)?;
             let root_record = tracker.extract();

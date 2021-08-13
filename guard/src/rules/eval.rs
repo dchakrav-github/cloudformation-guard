@@ -985,8 +985,8 @@ impl<'eval, 'value, 'loc: 'value> EvalContext<'value, 'loc> for ResolvedParamete
         self.parent.query(query)
     }
 
-    fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>> {
-        self.parent.find_parameterized_rule(rule_name)
+    fn find_parameterized_rule(&self, rule_name: &str, package: Option<&Vec<String>>) -> Result<&'value ParameterizedRule<'loc>> {
+        self.parent.find_parameterized_rule(rule_name, package)
     }
 
 
@@ -1019,7 +1019,7 @@ pub(in crate::rules) fn eval_parameterized_rule_call<'value, 'loc: 'value>(
     resolver: &dyn EvalContext<'value, 'loc>) -> Result<Status>
 {
     let param_rule = resolver.find_parameterized_rule(
-        &call_rule.named_rule.dependent_rule)?;
+        &call_rule.named_rule.dependent_rule, call_rule.package_prefix.as_ref())?;
 
     if param_rule.parameter_names.len() != call_rule.parameters.len() {
         return Err(Error::new(ErrorKind::IncompatibleError(

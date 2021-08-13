@@ -665,9 +665,7 @@ pub(crate) fn root_scope_with<'value, 'loc: 'value>(
     lookup_cache: HashMap<&'value str, &'value Rule<'loc>>,
     parameterized_rules: HashMap<&'value str,&'value ParameterizedRule<'loc>>,
     root: &'value PathAwareValue,
-    loader: &'value Loader<'loc>
-)
-    -> Result<RootScope<'value, 'loc>>
+    loader: &'value Loader<'loc>) -> Result<RootScope<'value, 'loc>>
 {
     Ok(RootScope {
         scope: Scope {
@@ -678,7 +676,7 @@ pub(crate) fn root_scope_with<'value, 'loc: 'value>(
         },
         rules: lookup_cache,
         parameterized_rules,
-        loader
+        loader,
     })
 }
 
@@ -748,8 +746,8 @@ impl<'eval, 'value, 'loc: 'value> EvalContext<'value, 'loc> for RecordTracker<'e
         self.parent.query(query)
     }
 
-    fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>> {
-        self.parent.find_parameterized_rule(rule_name)
+    fn find_parameterized_rule(&self, rule_name: &str, package: Option<&Vec<String>>) -> Result<&'value ParameterizedRule<'loc>> {
+        self.parent.find_parameterized_rule(rule_name, package)
     }
 
     fn root(&self) -> &'value PathAwareValue {
@@ -816,11 +814,29 @@ impl<'value, 'loc: 'value> EvalContext<'value, 'loc> for RootScope<'value, 'loc>
         query_retrieval(0, query, self.scope.root, self)
     }
 
-    fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>> {
-        match self.parameterized_rules.get(rule_name) {
-            Some(r) => Ok(*r),
-
+    fn find_parameterized_rule(&self, rule_name: &str, package: Option<&Vec<String>>) -> Result<&'value ParameterizedRule<'loc>> {
+        match package {
             None => {
+                match self.parameterized_rules.get(rule_name) {
+                    Some(r) => Ok(*r),
+                    _ => Err(Error::new(ErrorKind::MissingValue(
+                        format!("Parameterized Rule with name {} was not found, candiate {:?}",
+                                rule_name, self.parameterized_rules.keys())
+                    )))
+                }
+            },
+
+            Some(prefix) => {
+                let rules_files = self.loader.find_rules_file(&prefix)?;
+                for each in &rules_files.parameterized_rules {
+                    if &each.rule.rule_name == rule_name {
+                        return Ok(each)
+                    }
+                }
+                Err(Error::new(ErrorKind::MissingValue(
+                    format!("Parameterized Rule with name {} was not found, candiate {:?}",
+                            rule_name, self.parameterized_rules.keys())
+                )))
             }
         }
 
@@ -868,8 +884,8 @@ impl<'value, 'loc: 'value, 'eval> EvalContext<'value, 'loc> for ValueScope<'valu
         query_retrieval(0, query, self.root, self.parent)
     }
 
-    fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>> {
-        self.parent.find_parameterized_rule(rule_name)
+    fn find_parameterized_rule(&self, rule_name: &str, package: Option<&Vec<String>>) -> Result<&'value ParameterizedRule<'loc>> {
+        self.parent.find_parameterized_rule(rule_name, package)
     }
 
 
@@ -900,8 +916,8 @@ impl<'value, 'loc: 'value, 'eval> EvalContext<'value, 'loc> for BlockScope<'valu
         query_retrieval(0, query, self.scope.root, self)
     }
 
-    fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>> {
-        self.parent.find_parameterized_rule(rule_name)
+    fn find_parameterized_rule(&self, rule_name: &str, package: Option<&Vec<String>>) -> Result<&'value ParameterizedRule<'loc>> {
+        self.parent.find_parameterized_rule(rule_name, package)
     }
 
 

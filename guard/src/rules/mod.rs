@@ -7,7 +7,7 @@ pub(crate) mod path_value;
 pub(crate) mod eval_context;
 pub(crate) mod eval;
 pub(crate) mod display;
-mod loader;
+pub(crate) mod loader;
 
 use errors::Error;
 
@@ -266,7 +266,7 @@ struct ParameterRuleResult<'value, 'loc> {
 pub(crate) trait EvalContext<'value, 'loc: 'value> {
     fn query(&self, query: &'value [QueryPart<'loc>]) -> Result<Vec<QueryResult<'value>>>;
     //fn resolve(&self, guard_clause: &GuardAccessClause<'_>) -> Result<Vec<QueryResult<'value>>>;
-    fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>>;
+    fn find_parameterized_rule(&self, rule_name: &str, package_prefix: Option<&Vec<String>>) -> Result<&'value ParameterizedRule<'loc>>;
     fn root(&self) -> &'value PathAwareValue;
     fn rule_status(&self, rule_name: &str) -> Result<Status>;
     fn start_record(&self, context: &str) -> Result<()>;

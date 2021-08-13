@@ -15,6 +15,23 @@ pub(crate) struct FileTracker {
     root_path: PathBuf
 }
 
+impl FileTracker {
+    pub(crate) fn new(root_path: PathBuf,
+                      rule_files: Vec<PathBuf>) -> FileTracker {
+        FileTracker {
+            rule_files: rule_files.into_iter()
+                .map(|path| {
+                    let name = path.clone();
+                    let name = name.file_name().map_or(
+                        "".to_string(), |s|
+                            s.to_str().map_or("".to_string(), |os| os.to_string()));
+                    (path, name)
+                })
+                .collect(),
+            root_path
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct Loader<'loc> {
@@ -34,20 +51,16 @@ impl<'loc> Loader<'loc> {
                 let span = super::parser::Span::new_extra(&content, name.as_str());
                 let rules = super::parser::rules_file(span)?;
                 let rc = Rc::new(rules);
-                self.rules.borrow().insert(path_buf, rc.clone());
+                self.rules.borrow_mut().insert(path_buf, rc.clone());
                 Ok(rc)
             },
 
             None => {
-                return Err(Error::new(ErrorKind::MissingValue(format!("Can not find path at {}", file_path.as_path().display()))))
+                Err(Error::new(ErrorKind::RetrievalError(
+                    format!("Could not locate rules file for location {}", file_path.as_path().display())
+                )))
             }
         }
-    }
-
-    pub(crate) fn find_rules_file(&self, file: &[String]) -> crate::rules::Result<Rc<RulesFile<'loc>>> {
-        let mut file_path = self.tracker.root_path.clone();
-        file_path.extend(file);
-        self.find_rules_from_path(file_path)
     }
 }
 

@@ -17,7 +17,7 @@ fn extraction_test() -> Result<()> {
 
     let rules = RulesFile::try_from(rules_files)?;
     let path_value = PathAwareValue::try_from("{}")?;
-    let root_scope = root_scope(&rules, &path_value)?;
+    let root_scope = root_scope(&rules, &path_value, &dummy)?;
     assert_eq!(rules.guard_rules.len(), 1);
     assert_eq!(root_scope.rules.len(), 1);
     assert_eq!(root_scope.rules.get("aws_route53_recordset").map(|s| *s), rules.guard_rules.get(0));
@@ -37,7 +37,7 @@ impl<'value, 'loc: 'value> EvalContext<'value, 'loc> for BasicQueryTesting<'valu
         query_retrieval(0, query, self.root, self)
     }
 
-    fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>> {
+    fn find_parameterized_rule(&self, rule_name: &str, package: Option<&Vec<String>>) -> Result<&'value ParameterizedRule<'loc>> {
         todo!()
     }
 
