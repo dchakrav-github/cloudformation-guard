@@ -8,6 +8,7 @@ use std::convert::TryFrom;
 use crate::rules::errors::{Error, ErrorKind};
 use lazy_static::lazy_static;
 use inflector::cases::*;
+use crate::rules::loader::Loader;
 
 pub(crate) struct Scope<'value, 'loc: 'value> {
     root: &'value PathAwareValue,
@@ -26,6 +27,7 @@ pub(crate) struct RootScope<'value, 'loc: 'value> {
     scope: Scope<'value, 'loc>,
     rules: HashMap<&'value str, &'value Rule<'loc>>,
     parameterized_rules: HashMap<&'value str, &'value ParameterizedRule<'loc>>,
+    loader: &'value super::loader::Loader<'loc>
 }
 
 impl<'value, 'loc: 'value> RootScope<'value, 'loc> {
@@ -35,7 +37,9 @@ impl<'value, 'loc: 'value> RootScope<'value, 'loc> {
             self.scope.variable_queries,
             self.rules,
             self.parameterized_rules,
-            new_root)
+            new_root,
+            self.loader
+        )
     }
 }
 
@@ -61,7 +65,7 @@ pub(crate) fn reset_with<'value, 'loc: 'value>(
         variable_queries: variables
     };
     RootScope {
-        scope, rules, parameterized_rules
+        scope, rules, parameterized_rules, loader: root_scope.loader
     }
 }
 
@@ -635,10 +639,10 @@ fn query_retrieval_with_converter<'value, 'loc: 'value>(
     }
 }
 
-
 pub(crate) fn root_scope<'value, 'loc: 'value>(
     rules_file: &'value RulesFile<'loc>,
-    root: &'value PathAwareValue) -> Result<RootScope<'value, 'loc>>
+    root: &'value PathAwareValue,
+    loader: &'value Loader<'loc>) -> Result<RootScope<'value, 'loc>>
 {
     let (literals, queries) =
         extract_variables(&rules_file.assignments)?;
@@ -652,7 +656,7 @@ pub(crate) fn root_scope<'value, 'loc: 'value>(
     for pr in rules_file.parameterized_rules.iter(){
         parameterized_rules.insert(pr.rule.rule_name.as_str(), pr);
     }
-    root_scope_with(literals, queries, lookup_cache,  parameterized_rules, root)
+    root_scope_with(literals, queries, lookup_cache,  parameterized_rules, root, loader)
 }
 
 pub(crate) fn root_scope_with<'value, 'loc: 'value>(
@@ -660,7 +664,9 @@ pub(crate) fn root_scope_with<'value, 'loc: 'value>(
     queries: HashMap<&'value str, &'value AccessQuery<'loc>>,
     lookup_cache: HashMap<&'value str, &'value Rule<'loc>>,
     parameterized_rules: HashMap<&'value str,&'value ParameterizedRule<'loc>>,
-    root: &'value PathAwareValue)
+    root: &'value PathAwareValue,
+    loader: &'value Loader<'loc>
+)
     -> Result<RootScope<'value, 'loc>>
 {
     Ok(RootScope {
@@ -672,6 +678,7 @@ pub(crate) fn root_scope_with<'value, 'loc: 'value>(
         },
         rules: lookup_cache,
         parameterized_rules,
+        loader
     })
 }
 
@@ -812,11 +819,15 @@ impl<'value, 'loc: 'value> EvalContext<'value, 'loc> for RootScope<'value, 'loc>
     fn find_parameterized_rule(&self, rule_name: &str) -> Result<&'value ParameterizedRule<'loc>> {
         match self.parameterized_rules.get(rule_name) {
             Some(r) => Ok(*r),
-            _ => Err(Error::new(ErrorKind::MissingValue(
-                format!("Parameterized Rule with name {} was not found, candiate {:?}",
-                        rule_name, self.parameterized_rules.keys())
-            )))
+
+            None => {
+            }
         }
+
+        Err(Error::new(ErrorKind::MissingValue(
+            format!("Parameterized Rule with name {} was not found, candiate {:?}",
+                    rule_name, self.parameterized_rules.keys())
+        )))
     }
 
 

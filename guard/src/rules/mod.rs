@@ -263,10 +263,6 @@ struct ParameterRuleResult<'value, 'loc> {
     rule: &'value ParameterizedRule<'loc>
 }
 
-pub(crate) trait PackageLoader<'loc> {
-    fn find_rules_file(&mut self, file: &[String]) -> Result<&RulesFile<'loc>>;
-}
-
 pub(crate) trait EvalContext<'value, 'loc: 'value> {
     fn query(&self, query: &'value [QueryPart<'loc>]) -> Result<Vec<QueryResult<'value>>>;
     //fn resolve(&self, guard_clause: &GuardAccessClause<'_>) -> Result<Vec<QueryResult<'value>>>;
