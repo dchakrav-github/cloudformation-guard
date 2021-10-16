@@ -2,16 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::rules::errors::{Error, ErrorKind};
-use crate::rules::evaluate::RootScope;
+use crate::rules::eval_context::simplifed_json_from_root;
 use crate::rules::path_value::PathAwareValue;
-use crate::commands::tracker::StackTracker;
-use crate::commands::validate::ConsoleReporter;
-use crate::rules::{Evaluate, Result};
+use crate::rules::Result;
 use std::convert::TryFrom;
 
 pub fn validate_and_return_json(
     data: &str,
     rules: &str,
+    parse_output: &bool
 ) -> Result<String> {
     let input_data = match serde_json::from_str::<serde_json::Value>(&data) {
        Ok(value) => PathAwareValue::try_from(value),
@@ -28,16 +27,15 @@ pub fn validate_and_return_json(
                     let mut root_scope = crate::rules::eval_context::root_scope(&rules, &root)?;
                     let mut tracker = crate::rules::eval_context::RecordTracker::new(&mut root_scope);
                     let _status = crate::rules::eval::eval_rules_file(&rules, &mut tracker)?;
-                    let event = tracker.final_event.unwrap();
-                    Ok(serde_json::to_string_pretty(&event)?)
+                    let event = tracker.extract();
 
-//                    let root_context = RootScope::new(&rules, &root);
-//                    let stacker = StackTracker::new(&root_context);
-//                    let reporters = vec![];
-//                    let reporter = ConsoleReporter::new(stacker, &reporters, "lambda-run","lambda-payload", true, true, false);
-//                    rules.evaluate(&root, &reporter)?;
-//                    let json_result = reporter.get_result_json();
-//                    return Ok(json_result);
+                    if *parse_output {
+                        Ok(serde_json::to_string_pretty(&simplifed_json_from_root(
+                            &event,
+                        )?)?)
+                    } else {
+                        Ok(serde_json::to_string_pretty(&event)?)
+                    }
                 }
                 Err(e) => return Err(e),
             }

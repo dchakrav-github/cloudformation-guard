@@ -13,6 +13,8 @@ struct CustomEvent {
     data: String,
     #[serde(rename = "rules")]
     rules: Vec<String>,
+    #[serde(rename = "parse_output")]
+    parse_output: bool,
 }
 
 #[derive(Serialize)]
@@ -34,7 +36,7 @@ pub(crate) async fn call_cfn_guard(e: CustomEvent, _c: Context) -> Result<Custom
     info!("Rule Set is: [{:?}]", &e.rules);
     let mut results_vec = Vec::new();
     for rule in e.rules.iter() {
-        let result = match cfn_guard::run_checks(&e.data, &rule) {
+        let result = match cfn_guard::run_checks(&e.data, &rule, &e.parse_output) {
             Ok(t) => t,
             Err(e) => (e.to_string()),
         };
