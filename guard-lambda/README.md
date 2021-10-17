@@ -51,6 +51,7 @@ aws lambda create-function --function-name cfnGuardLambda \
 The payload JSON to `cfn-guard-lambda` requires the following two fields:
 * `data` - String version of the YAML or JSON structured data
 * `rules` - List of string version of rules files that you want to run your YAML or JSON structured data against.
+* `parse_output` - Boolean. If true, returns parsed output. If false, return raw json output.
 
 ## Invoking `cfn-guard-lambda`
 
@@ -58,7 +59,7 @@ To invoke the submitted cfn-guard as a AWS Lambda function run:
 
 ```bash
 aws lambda invoke --function-name cfnGuardLambda \
-  --payload "{"data": "<input data>", "rules" : ["<input rules 1>", "<input rules 2>", ...]}" \
+  --payload "{"data": "<input data>", "rules" : ["<input rules 1>", "<input rules 2>", ...], "parse_output": true}" \
   output.json
 ```
 The above works for AWS CLI version 1. If you are planning to use the AWS CLI version 2 please refer to the [Migrating from AWS CLI version 1 to version 2 document](https://docs.aws.amazon.com/cli/latest/userguide/cliv2-migration.html#cliv2-migration-binaryparam) for changes required to the above command.
@@ -66,7 +67,7 @@ The above works for AWS CLI version 1. If you are planning to use the AWS CLI ve
 ### Example
 
 ```bash
-aws lambda invoke --function-name cfnGuard --payload '{"data": "{\"Resources\":{\"NewVolume\":{\"Type\":\"AWS::EC2::Volume\",\"Properties\":{\"Size\":500,\"Encrypted\":false,\"AvailabilityZone\":\"us-west-2b\"}},\"NewVolume2\":{\"Type\":\"AWS::EC2::Volume\",\"Properties\":{\"Size\":50,\"Encrypted\":false,\"AvailabilityZone\":\"us-west-2c\"}}}}", "rules" : [ "Resources.*[ Type == /EC2::Volume/ ].Properties.Encrypted == false" ]}' output.json
+aws lambda invoke --function-name cfnGuard --payload '{"data": "{\"Resources\":{\"NewVolume\":{\"Type\":\"AWS::EC2::Volume\",\"Properties\":{\"Size\":500,\"Encrypted\":false,\"AvailabilityZone\":\"us-west-2b\"}},\"NewVolume2\":{\"Type\":\"AWS::EC2::Volume\",\"Properties\":{\"Size\":50,\"Encrypted\":false,\"AvailabilityZone\":\"us-west-2c\"}}}}", "rules" : [ "Resources.*[ Type == /EC2::Volume/ ].Properties.Encrypted == false" ], "parse_output": true}' output.json
 ```
 
 ## FAQs
