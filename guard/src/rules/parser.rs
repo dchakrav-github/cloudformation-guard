@@ -1,32 +1,33 @@
-use nom::error::ErrorKind;
-use nom_locate::LocatedSpan;
+use std::convert::TryFrom;
+use std::fmt::Formatter;
 
+use indexmap::map::IndexMap;
+use nom::{FindSubstring, InputTake, Slice};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_till};
-use nom::character::complete::{char, multispace1, space0, multispace0};
-use nom::combinator::{map, value};
-use nom::multi::{many0, many1};
-use nom::sequence::{delimited, preceded};
 use nom::bytes::complete::{is_not, take_while, take_while1};
-use nom::character::complete::{digit1, one_of, anychar};
+use nom::character::complete::{char, multispace0, multispace1, space0};
+use nom::character::complete::{anychar, digit1, one_of};
+use nom::character::complete::{alpha1, newline, space1};
+use nom::combinator::{map, value};
 use nom::combinator::{map_res, opt};
-use nom::number::complete::double;
-use nom::sequence::{separated_pair, tuple};
-use nom::{FindSubstring, InputTake, Slice};
-use nom::character::complete::{alpha1, space1, newline};
-use nom::combinator::{cut, peek, all_consuming};
+use nom::combinator::{all_consuming, cut, peek};
 use nom::error::context;
-use nom::multi::{fold_many1, separated_nonempty_list, separated_list};
+use nom::error::ErrorKind;
+use nom::multi::{many0, many1};
+use nom::multi::{fold_many1, separated_list, separated_nonempty_list};
+use nom::number::complete::double;
+use nom::sequence::{delimited, preceded};
+use nom::sequence::{separated_pair, tuple};
 use nom::sequence::{pair, terminated};
+use nom_locate::LocatedSpan;
 
-use crate::rules::exprs::*;
-use crate::rules::values::*;
-use crate::rules::errors::Error;
-use std::fmt::Formatter;
-use indexmap::map::IndexMap;
-use std::convert::TryFrom;
 use crate::migrate::parser::TypeName;
-use crate::rules::path_value::{PathAwareValue, Path};
+use crate::rules::errors::Error;
+use crate::rules::exprs::*;
+use crate::rules::path_value::{Path, PathAwareValue};
+use crate::rules::types::RangeType;
+use crate::rules::values::*;
 
 pub(crate) type Span<'a> = LocatedSpan<&'a str, &'a str>;
 

@@ -1,10 +1,12 @@
-use crate::rules::eval_context::EventRecord;
-use crate::rules::{RecordType, BlockCheck, ClauseCheck, Status, QueryResult};
-use std::fmt::{Formatter, Display};
-use crate::rules::values::{CmpOperator, RangeType, LOWER_INCLUSIVE, UPPER_INCLUSIVE};
-use crate::rules::path_value::PathAwareValue;
 use std::convert::TryInto;
+use std::fmt::{Display, Formatter};
+
+use crate::rules::{BlockCheck, ClauseCheck, QueryResult, RecordType, Status};
+use crate::rules::eval_context::EventRecord;
 use crate::rules::exprs::SliceDisplay;
+use crate::rules::path_value::PathAwareValue;
+use crate::rules::types::RangeType;
+use crate::rules::values::{CmpOperator, LOWER_INCLUSIVE, UPPER_INCLUSIVE};
 
 pub(crate) fn display_comparison((cmp, not): (CmpOperator, bool)) -> String {
     format!("{} {}", if not { "not" } else { "" }, cmp)

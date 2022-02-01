@@ -1,16 +1,18 @@
-pub(crate) mod traversal;
-
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 //
 // Std Libraries
 //
 use std::fmt::Formatter;
-use serde::{Serialize, Deserialize, Serializer};
+use std::hash::{Hash, Hasher};
 
+use serde::{Deserialize, Serialize, Serializer};
+use serde::ser::{SerializeMap, SerializeStruct};
 
 use crate::rules::evaluate::{AutoReport, resolve_query};
 use crate::rules::EvaluationType;
+use crate::rules::exprs::LetValue;
+use crate::rules::types::RangeType;
 
 use super::{Evaluate, EvaluationContext, Status};
 use super::errors::{Error, ErrorKind};
@@ -19,9 +21,8 @@ use super::exprs::{QueryPart, SliceDisplay};
 // Local mod
 //
 use super::values::*;
-use crate::rules::exprs::LetValue;
-use std::hash::{Hash, Hasher};
-use serde::ser::{SerializeStruct, SerializeMap};
+
+pub(crate) mod traversal;
 
 //
 // crate level

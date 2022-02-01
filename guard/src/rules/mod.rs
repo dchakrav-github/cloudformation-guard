@@ -1,3 +1,18 @@
+use std::fmt::Formatter;
+
+use colored::*;
+use nom::lib::std::convert::TryFrom;
+use serde::Serialize;
+
+use errors::Error;
+use types::RangeType;
+
+use crate::rules::errors::ErrorKind;
+use crate::rules::eval_context::Scope;
+use crate::rules::exprs::{GuardAccessClause, ParameterizedRule, QueryPart};
+use crate::rules::path_value::PathAwareValue;
+use crate::rules::values::CmpOperator;
+
 pub(crate) mod errors;
 pub(crate) mod evaluate;
 pub(crate) mod exprs;
@@ -8,18 +23,8 @@ pub(crate) mod eval_context;
 pub(crate) mod eval;
 pub(crate) mod display;
 pub(crate) mod functions;
-
-use errors::Error;
-
-use std::fmt::Formatter;
-use colored::*;
-use crate::rules::path_value::PathAwareValue;
-use nom::lib::std::convert::TryFrom;
-use crate::rules::errors::ErrorKind;
-use serde::{Serialize};
-use crate::rules::values::CmpOperator;
-use crate::rules::exprs::{QueryPart, GuardAccessClause, ParameterizedRule};
-use crate::rules::eval_context::Scope;
+pub(crate) mod ast;
+pub(crate) mod types;
 
 pub(crate) type Result<R> = std::result::Result<R, Error>;
 
@@ -331,3 +336,4 @@ pub(crate) trait Evaluate {
                 context: &'s PathAwareValue,
                 var_resolver: &'s dyn EvaluationContext) -> Result<Status>;
 }
+

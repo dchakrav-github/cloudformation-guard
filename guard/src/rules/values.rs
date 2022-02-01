@@ -1,21 +1,20 @@
 use std::convert::TryFrom;
+use std::fmt;
+use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 
 use indexmap::map::IndexMap;
+use lazy_static::lazy_static;
 use nom::lib::std::fmt::Formatter;
+use serde::{Deserialize, Serialize};
+use yaml_rust::{Event, Yaml};
+use yaml_rust::parser::{MarkedEventReceiver, Parser};
+use yaml_rust::scanner::{Marker, TokenType, TScalarStyle};
 
 use crate::rules::errors::{Error, ErrorKind};
 use crate::rules::parser::Span;
-
-use serde::{Serialize, Deserialize};
-use std::fmt;
-use std::fmt::Display;
-use yaml_rust::parser::{MarkedEventReceiver, Parser};
-use yaml_rust::{Event, Yaml};
-use yaml_rust::scanner::{Marker, TScalarStyle, TokenType};
 use crate::rules::path_value::Location;
-
-use lazy_static::lazy_static;
+use crate::rules::types::RangeType;
 
 #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize, Hash, Copy)]
 pub enum CmpOperator {
@@ -199,60 +198,6 @@ impl Display for Value {
             }
         }
     }
-}
-
-//
-//    .X > 10
-//    .X <= 20
-//
-//    .X in r(10, 20]
-//    .X in r(10, 20)
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct RangeType<T: PartialOrd> {
-    pub upper: T,
-    pub lower: T,
-    pub inclusive: u8,
-}
-
-pub const LOWER_INCLUSIVE: u8 = 0x01;
-pub const UPPER_INCLUSIVE: u8 = 0x01 << 1;
-
-pub(crate) trait WithinRange<RHS: PartialOrd = Self> {
-    fn is_within(&self, range: &RangeType<RHS>) -> bool;
-}
-
-impl WithinRange for i64 {
-    fn is_within(&self, range: &RangeType<i64>) -> bool {
-        is_within(range, self)
-    }
-}
-
-impl WithinRange for f64 {
-    fn is_within(&self, range: &RangeType<f64>) -> bool {
-        is_within(range, self)
-    }
-}
-
-impl WithinRange for char {
-    fn is_within(&self, range: &RangeType<char>) -> bool {
-        is_within(range, self)
-    }
-}
-
-//impl WithinRange for
-
-fn is_within<T: PartialOrd>(range: &RangeType<T>, other: &T) -> bool {
-    let lower = if (range.inclusive & LOWER_INCLUSIVE) > 0 {
-        range.lower.le(other)
-    } else {
-        range.lower.lt(other)
-    };
-    let upper = if (range.inclusive & UPPER_INCLUSIVE) > 0 {
-        range.upper.ge(other)
-    } else {
-        range.upper.gt(other)
-    };
-    lower && upper
 }
 
 impl <'a> TryFrom<&'a serde_json::Value> for Value {

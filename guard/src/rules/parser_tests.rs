@@ -1,7 +1,7 @@
 use super::*;
 use std::convert::TryInto;
 
-use crate::rules::values::WithinRange;
+use crate::rules::types::WithinRange;
 
 
 use crate::rules::{EvaluationContext, EvaluationType, Status};
