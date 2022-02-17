@@ -14,7 +14,7 @@ use yaml_rust::scanner::{Marker, TokenType, TScalarStyle};
 use crate::rules::errors::{Error, ErrorKind};
 use crate::rules::parser::Span;
 use crate::rules::path_value::Location;
-use crate::rules::types::RangeType;
+use crate::rules::types::{ RangeType, LOWER_INCLUSIVE, UPPER_INCLUSIVE};
 
 #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize, Hash, Copy)]
 pub enum CmpOperator {

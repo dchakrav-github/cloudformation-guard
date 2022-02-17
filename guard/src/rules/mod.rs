@@ -25,6 +25,8 @@ pub(crate) mod display;
 pub(crate) mod functions;
 pub(crate) mod ast;
 pub(crate) mod types;
+pub(crate) mod evaluator;
+
 
 pub(crate) type Result<R> = std::result::Result<R, Error>;
 

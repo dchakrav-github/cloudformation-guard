@@ -285,8 +285,8 @@ fn parse_range(input: Span) -> IResult<Span, Value> {
         )),
     )(input)?;
     let (open, (start, end), close) = parsed.1;
-    let mut inclusive: u8 = if open == '[' { LOWER_INCLUSIVE } else { 0u8 };
-    inclusive |= if close == ']' { UPPER_INCLUSIVE } else { 0u8 };
+    let mut inclusive: u8 = if open == '[' { super::types::LOWER_INCLUSIVE } else { 0u8 };
+    inclusive |= if close == ']' { super::types::UPPER_INCLUSIVE } else { 0u8 };
     let val = match (start, end) {
         (Value::Int(s), Value::Int(e)) => Value::RangeInt(RangeType {
             upper: e,

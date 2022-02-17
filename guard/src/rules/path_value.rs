@@ -12,7 +12,7 @@ use serde::ser::{SerializeMap, SerializeStruct};
 use crate::rules::evaluate::{AutoReport, resolve_query};
 use crate::rules::EvaluationType;
 use crate::rules::exprs::LetValue;
-use crate::rules::types::RangeType;
+use crate::rules::types::{RangeType, LOWER_INCLUSIVE, UPPER_INCLUSIVE, WithinRange};
 
 use super::{Evaluate, EvaluationContext, Status};
 use super::errors::{Error, ErrorKind};

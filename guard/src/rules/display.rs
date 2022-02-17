@@ -6,7 +6,7 @@ use crate::rules::eval_context::EventRecord;
 use crate::rules::exprs::SliceDisplay;
 use crate::rules::path_value::PathAwareValue;
 use crate::rules::types::RangeType;
-use crate::rules::values::{CmpOperator, LOWER_INCLUSIVE, UPPER_INCLUSIVE};
+use crate::rules::{ values::CmpOperator, types::{LOWER_INCLUSIVE, UPPER_INCLUSIVE}};
 
 pub(crate) fn display_comparison((cmp, not): (CmpOperator, bool)) -> String {
     format!("{} {}", if not { "not" } else { "" }, cmp)

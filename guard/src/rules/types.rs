@@ -1,3 +1,4 @@
+use serde::{Serialize, Deserialize};
 //
 //    .X > 10
 //    .X <= 20
@@ -17,19 +18,19 @@ pub(crate) trait WithinRange<RHS: PartialOrd = Self> {
 
 impl WithinRange for i64 {
     fn is_within(&self, range: &RangeType<i64>) -> bool {
-        values::is_within(range, self)
+        is_within(range, self)
     }
 }
 
 impl WithinRange for f64 {
     fn is_within(&self, range: &RangeType<f64>) -> bool {
-        values::is_within(range, self)
+        is_within(range, self)
     }
 }
 
 impl WithinRange for char {
     fn is_within(&self, range: &RangeType<char>) -> bool {
-        values::is_within(range, self)
+        is_within(range, self)
     }
 }
 
