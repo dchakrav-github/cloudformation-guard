@@ -23,7 +23,6 @@ pub(crate) mod eval_context;
 pub(crate) mod eval;
 pub(crate) mod display;
 pub(crate) mod functions;
-pub(crate) mod ast;
 pub(crate) mod types;
 pub(crate) mod evaluator;
 

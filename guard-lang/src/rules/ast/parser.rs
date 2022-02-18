@@ -1,5 +1,5 @@
-use crate::rules::parser::{Span, zero_or_more_ws_or_comment, IResult};
-use crate::rules::ast::exprs::{Expr, LetExpr, Location, StringExpr, IntExpr, BoolExpr};
+use crate::rules::types::{Span, IResult};
+use super::exprs::{Expr, LetExpr, Location, StringExpr, IntExpr, BoolExpr};
 use nom::sequence::delimited;
 use nom::combinator::value;
 use nom::bytes::complete::*;
@@ -8,7 +8,6 @@ use nom::sequence::*;
 use nom::branch::*;
 use nom::character::complete::*;
 use nom::Slice;
-use yaml_rust::yaml::Yaml::Boolean;
 
 ///
 /// Parser grammar

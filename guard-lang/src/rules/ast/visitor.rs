@@ -1,9 +1,9 @@
 use super::exprs::*;
-use crate::rules::Result;
+use crate::rules::types::Result;
 use crate::rules::errors::Error;
 use crate::rules::errors::ErrorKind::IncompatibleError;
 
-pub(crate) trait Visitor {
+pub trait Visitor {
     type Result;
 
     fn visit_rule(&mut self, _rule: &RuleExpr)          -> Result<Self::Result> {
