@@ -3,5 +3,5 @@
 members = [
     "guard",
     "guard-lambda",
-    "lang"
+    "guard-lang"
 ]

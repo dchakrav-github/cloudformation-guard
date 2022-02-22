@@ -1,5 +1,5 @@
 [package]
-name = "lang"
+name = "guard-lang"
 version = "0.1.0"
 authors = ["diwakar <dchakrav-github@gmail.com>"]
 edition = "2018"

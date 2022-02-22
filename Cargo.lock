@@ -127,6 +127,7 @@ dependencies = [
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
+ "guard-lang",
  "heck",
  "indexmap",
  "itertools",
