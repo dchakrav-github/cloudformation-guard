@@ -386,6 +386,12 @@ fn test_parse_map() {
         "{ size: 10, }",
         "{ size: 10, length: 20 }",
         "{ ok: true, value: null }",
+        r###"
+        {
+           size: # this is a comment
+              10,
+        }
+        "###
     ];
 
     success.iter()
@@ -395,6 +401,24 @@ fn test_parse_map() {
                 let result = parse_map(span);
                 assert_eq!(result.is_ok(), true);
             }
-        )
+        );
 
+}
+
+#[test]
+fn test_parse_collection() {
+    let success = [
+        "[10, 20]",
+        "[10, 20, 30, { mixed: true },]"
+    ];
+
+    success.iter()
+        .for_each(
+            |to_parse| {
+                let span = Span::new_extra(*to_parse, "");
+                let result = parse_array(span);
+                println!("{:?}", result);
+                assert_eq!(result.is_ok(), true);
+            }
+        );
 }

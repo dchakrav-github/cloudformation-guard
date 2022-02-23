@@ -326,14 +326,7 @@ fn parse_scalar_value(input: Span) -> IResult<Span, Expr> {
 }
 
 fn parse_value_separator(input: Span) -> IResult<Span, ()> {
-    value(
-        (),
-        delimited(
-            zero_or_more_ws_or_comment,
-            char(','),
-            zero_or_more_ws_or_comment
-        )
-    )(input)
+    empty_value(char(','))(input)
 }
 
 fn parse_map_key(input: Span) -> IResult<Span, Expr> {
@@ -344,42 +337,21 @@ fn parse_map_key(input: Span) -> IResult<Span, Expr> {
 }
 
 fn parse_start_bracket(input: Span) -> IResult<Span, ()> {
-    value(
-        (),
-        delimited(
-            zero_or_more_ws_or_comment,
-            char('{'),
-            zero_or_more_ws_or_comment
-        )
-    )(input)
+    empty_value(char('{'))(input)
 }
 
 fn parse_end_bracket(input: Span) -> IResult<Span, ()> {
-    value(
-        (),
-        delimited(
-            zero_or_more_ws_or_comment,
-            char('}'),
-            zero_or_more_ws_or_comment
-        )
-    )(input)
+    empty_value(char('}'))(input)
 }
 
 fn parse_map_key_value_sep(input: Span) -> IResult<Span, ()> {
-    value(
-        (),
-        delimited(
-            zero_or_more_ws_or_comment,
-            char(':'),
-            zero_or_more_ws_or_comment
-        )
-    )(input)
+    empty_value(char(':'))(input)
 }
 
 fn parse_map(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, _start_bracket) = parse_start_bracket(input)?;
-    let mut map = Box::new(indexmap::IndexMap::new());
+    let mut map = indexmap::IndexMap::new();
     let mut span = input;
     loop {
         let (left, (key, value)) = separated_pair(
@@ -396,13 +368,59 @@ fn parse_map(input: Span) -> IResult<Span, Expr> {
             Ok((left, _)) => {
                 span = left;
                 if let Ok((left, _)) = parse_end_bracket(span) {
-                    return Ok((left, Expr::Map(Box::new(MapExpr::new(*map, location)))));
+                    return Ok((left, Expr::Map(Box::new(MapExpr::new(map, location)))));
                 }
             },
 
             Err(nom::Err::Error(_)) => {
                 let (left, _end_bracket) = cut(parse_end_bracket)(span)?;
-                return Ok((left, Expr::Map(Box::new(MapExpr::new(*map, location)))));
+                return Ok((left, Expr::Map(Box::new(MapExpr::new(map, location)))));
+            },
+
+            Err(rest) => return Err(rest)
+        }
+    }
+}
+
+fn empty_value<'a, P, O>(parser: P) -> impl Fn(Span<'a>) -> IResult<Span<'a>, ()>
+where
+    P: Fn(Span<'a>) -> IResult<Span<'a>, O>
+{
+    move |input: Span| {
+        let (input, _) = zero_or_more_ws_or_comment(input)?;
+        let (input, _ign) = parser(input)?;
+        zero_or_more_ws_or_comment(input).map(|(i, _)| (i, ()))
+    }
+}
+
+fn parse_start_braces(input: Span) -> IResult<Span, ()> {
+    empty_value(char('['))(input)
+}
+
+fn parse_end_braces(input: Span) -> IResult<Span, ()> {
+    empty_value(char(']'))(input)
+}
+
+fn parse_array(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, _start) = parse_start_braces(input)?;
+    let mut collection = Vec::new();
+    let mut span = input;
+    loop {
+        let (left, value) = parse_value(span)?;
+        collection.push(value);
+        span = left;
+        match parse_value_separator(span) {
+            Ok((left, _)) => {
+                span = left;
+                if let Ok((left, _)) = parse_end_braces(span) {
+                    return Ok((left, Expr::Array(Box::new(ArrayExpr::new(collection, location)))))
+                }
+            },
+
+            Err(nom::Err::Error(_)) => {
+                let (left, _end) = cut(parse_end_braces)(span)?;
+                return Ok((left, Expr::Array(Box::new(ArrayExpr::new(collection, location)))))
             },
 
             Err(rest) => return Err(rest)
@@ -414,6 +432,7 @@ fn parse_value(input: Span) -> IResult<Span, Expr> {
     alt((
         parse_scalar_value,
         parse_map,
+        parse_array,
         parse_null
     ))(input)
 }
