@@ -367,6 +367,34 @@ fn test_parse_range() {
                     _ => unreachable!()
                 });
             }
+        );
+}
+
+#[test]
+fn test_parse_map() {
+
+    let success = [
+        r###"
+        {
+            size: 10,
+            length: 20,
+            units: {
+                type: "centimeters",
+            }
+        }
+        "###,
+        "{ size: 10, }",
+        "{ size: 10, length: 20 }",
+        "{ ok: true, value: null }",
+    ];
+
+    success.iter()
+        .for_each(
+            |to_parse| {
+                let span = Span::new_extra(*to_parse, "");
+                let result = parse_map(span);
+                assert_eq!(result.is_ok(), true);
+            }
         )
 
 }

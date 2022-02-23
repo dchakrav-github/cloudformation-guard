@@ -108,28 +108,17 @@ fn zero_or_more_ws_or_comment(input: Span) -> IResult<Span, ()> {
 }
 
 
-///
-/// Parser grammar
-///
-///
-///
+//
+// Parser for the grammar
+//
 fn strip_comments_space<F, O>(parser: F) -> impl Fn(Span) -> IResult<Span, O>
     where F: Fn(Span) -> IResult<Span, O>
 {
-    move |input| {
+    move |input: Span| {
         let (input, _comments) = zero_or_more_ws_or_comment(input)?;
         let (input, result) = parser(input)?;
         let (input, _comments) = zero_or_more_ws_or_comment(input)?;
         Ok((input, result))
-    }
-}
-
-fn parser_return_void<F, O>(parser: F) -> impl Fn(Span) -> IResult<Span, ()>
-    where F: Fn(Span) -> IResult<Span, O>
-{
-    move |input| {
-        let (input, _result) = strip_comments_space(|i| parser(i))(input)?;
-        Ok((input, ()))
     }
 }
 
@@ -314,24 +303,122 @@ fn parse_range(input: Span) -> IResult<Span, Expr> {
     Ok((input, value))
 }
 
+fn parse_null(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, _null) = alt((tag("null"), tag("NULL")))(input)?;
+    Ok((input, Expr::Null(Box::new(location))))
+}
+
 //
-////
-//// Adding the parser to return scalar values
-////
-//fn parse_scalar_value(input: Span) -> IResult<Span, Value> {
-//    //
-//    // IMP: order does matter
-//    // parse_float is before parse_int. the later can parse only the whole part of the float
-//    // to match.
-//    alt((
-//        parse_string,
-//        parse_float,
-//        parse_int_value,
-//        parse_bool,
-//        parse_regex,
-//    ))(input)
-//}
+// Adding the parser to return scalar values
 //
+fn parse_scalar_value(input: Span) -> IResult<Span, Expr> {
+    alt((
+        parse_string,
+        parse_regex,
+        //
+        // is before parse_float as float can also handle 10 as 10.0
+        //
+        parse_int_value,
+        parse_float,
+        parse_bool,
+    ))(input)
+}
+
+fn parse_value_separator(input: Span) -> IResult<Span, ()> {
+    value(
+        (),
+        delimited(
+            zero_or_more_ws_or_comment,
+            char(','),
+            zero_or_more_ws_or_comment
+        )
+    )(input)
+}
+
+fn parse_map_key(input: Span) -> IResult<Span, Expr> {
+    alt((
+        var_name,
+        parse_string,
+    ))(input)
+}
+
+fn parse_start_bracket(input: Span) -> IResult<Span, ()> {
+    value(
+        (),
+        delimited(
+            zero_or_more_ws_or_comment,
+            char('{'),
+            zero_or_more_ws_or_comment
+        )
+    )(input)
+}
+
+fn parse_end_bracket(input: Span) -> IResult<Span, ()> {
+    value(
+        (),
+        delimited(
+            zero_or_more_ws_or_comment,
+            char('}'),
+            zero_or_more_ws_or_comment
+        )
+    )(input)
+}
+
+fn parse_map_key_value_sep(input: Span) -> IResult<Span, ()> {
+    value(
+        (),
+        delimited(
+            zero_or_more_ws_or_comment,
+            char(':'),
+            zero_or_more_ws_or_comment
+        )
+    )(input)
+}
+
+fn parse_map(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, _start_bracket) = parse_start_bracket(input)?;
+    let mut map = Box::new(indexmap::IndexMap::new());
+    let mut span = input;
+    loop {
+        let (left, (key, value)) = separated_pair(
+            parse_map_key,
+            parse_map_key_value_sep,
+            parse_value)(span)?;
+
+        span = left;
+        if let Expr::String(key) = key {
+            map.insert(*key, value);
+        }
+
+        match parse_value_separator(span) {
+            Ok((left, _)) => {
+                span = left;
+                if let Ok((left, _)) = parse_end_bracket(span) {
+                    return Ok((left, Expr::Map(Box::new(MapExpr::new(*map, location)))));
+                }
+            },
+
+            Err(nom::Err::Error(_)) => {
+                let (left, _end_bracket) = cut(parse_end_bracket)(span)?;
+                return Ok((left, Expr::Map(Box::new(MapExpr::new(*map, location)))));
+            },
+
+            Err(rest) => return Err(rest)
+        }
+    }
+}
+
+fn parse_value(input: Span) -> IResult<Span, Expr> {
+    alt((
+        parse_scalar_value,
+        parse_map,
+        parse_null
+    ))(input)
+}
+
+
 
 //fn parse_let(input: Span) -> IResult<Span, Expr> {
 //    let location = Location::new(

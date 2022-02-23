@@ -359,23 +359,23 @@ impl UnaryExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct MapExpr {
-    entries: indexmap::IndexMap<String, Expr>,
+    entries: indexmap::IndexMap<StringExpr, Expr>,
     location: Location,
 }
 
 impl MapExpr {
-    pub fn new(entries: indexmap::IndexMap<String, Expr>, location: Location) -> Self {
+    pub fn new(entries: indexmap::IndexMap<StringExpr, Expr>, location: Location) -> Self {
         MapExpr { entries, location }
     }
 
     #[inline]
-    pub fn entries(&self) -> &indexmap::IndexMap<String, Expr> { &self.entries }
+    pub fn entries(&self) -> &indexmap::IndexMap<StringExpr, Expr> { &self.entries }
 
     #[inline]
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct StringExpr {
     value: String,
     location: Location
