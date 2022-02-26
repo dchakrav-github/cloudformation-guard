@@ -71,6 +71,16 @@ pub enum Expr {
     Select(Box<QueryExpr>),
 
     /// A block expression that is effectively a part of a Query to filter down values
+    /// A filter expression can be be one of 3 forms that is reflected in the [Expr]
+    /// captured
+    ///
+    ///   Resources[ Type == /S3/ ] # actual clause form, this filter by the clause name
+    ///   Resources[ %names ] # variable reference form, filters keys by the reference contained
+    ///
+    ///   Resources[ name | Type == /S3/ ]
+    ///   Resources[ name | %name == /^not/ ] # filter keys that start with name
+    ///   Resources[ name ]  # just capture variable.
+    ///
     ///
     Filter(Box<BlockExpr>),
 
@@ -127,6 +137,14 @@ pub enum Expr {
     /// A char literal value in the language
     Char(Box<CharExpr>),
 
+    /// Variable definition
+    ///
+    Variable(Box<StringExpr>),
+
+    /// Variable Reference
+    ///
+    VariableReference(Box<StringExpr>),
+
     /// A range value expression that is use to denote a contiguous range of values
     ///
     /// # Examples
@@ -174,11 +192,11 @@ pub enum UnaryOperator {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct RuleExpr {
-    name: String,
-    when: Expr,
-    parameters: Option<Vec<Expr>>,
-    block: BlockExpr,
-    location: Location,
+    pub(crate) name: String,
+    pub(crate) when: Expr,
+    pub(crate) parameters: Option<Vec<Expr>>,
+    pub(crate) block: BlockExpr,
+    pub(crate) location: Location,
 }
 
 impl RuleExpr {
@@ -204,9 +222,9 @@ impl RuleExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WhenExpr {
-    when: Expr,
-    block: BlockExpr,
-    location: Location,
+    pub(crate) when: Expr,
+    pub(crate) block: BlockExpr,
+    pub(crate) location: Location,
 }
 
 impl WhenExpr {
@@ -224,8 +242,8 @@ impl WhenExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ArrayExpr {
-    elements: Vec<Expr>,
-    location: Location,
+    pub(crate) elements: Vec<Expr>,
+    pub(crate) location: Location,
 }
 
 impl ArrayExpr {
@@ -241,9 +259,9 @@ impl ArrayExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BlockExpr {
-    assignments: Vec<LetExpr>,
-    clause: Expr,
-    location: Location,
+    pub(crate) assignments: Vec<LetExpr>,
+    pub(crate) clause: Expr,
+    pub(crate) location: Location,
 }
 
 impl BlockExpr {
@@ -261,9 +279,9 @@ impl BlockExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BlockClauseExpr {
-    select: QueryExpr,
-    block: BlockExpr,
-    location: Location,
+   pub(crate) select: QueryExpr,
+   pub(crate) block: BlockExpr,
+   pub(crate) location: Location,
 }
 
 impl BlockClauseExpr {
@@ -281,14 +299,19 @@ impl BlockClauseExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct LetExpr {
-    name: String,
-    value: Expr,
-    location: Location,
+   pub(crate) key: Option<String>,
+   pub(crate) name: String,
+   pub(crate) value: Expr,
+   pub(crate) location: Location,
 }
 
 impl LetExpr {
     pub fn new(name: String, value: Expr, location: Location) -> LetExpr {
-        LetExpr { name, value, location }
+        Self::new_with_key(None, name, value, location)
+    }
+
+    pub fn new_with_key(key: Option<String>, name: String, value: Expr, location: Location) -> LetExpr {
+        LetExpr { key, name, value, location }
     }
 
     #[inline]
@@ -301,8 +324,8 @@ impl LetExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct QueryExpr {
-    parts: Vec<Expr>,
-    location: Location,
+   pub(crate) parts: Vec<Expr>,
+   pub(crate) location: Location,
 }
 
 impl QueryExpr {
@@ -312,17 +335,34 @@ impl QueryExpr {
 
     #[inline]
     pub fn parts(&self) -> &[Expr] { &self.parts }
-
     #[inline]
     pub fn location(&self) -> &Location { &self.location }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct BinaryExpr {
-    operator: BinaryOperator,
-    lhs: Expr,
-    rhs: Expr,
+pub struct FilterExpr {
+    expr: Expr,
     location: Location,
+}
+
+impl FilterExpr {
+    pub fn new(expr: Expr, location: Location) -> Self {
+        FilterExpr { expr, location }
+    }
+
+    #[inline]
+    pub fn expr(&self) -> &Expr { &self.expr }
+    #[inline]
+    pub fn location(&self) -> &Location { &self.location }
+}
+
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BinaryExpr {
+    pub(crate) operator: BinaryOperator,
+    pub(crate) lhs: Expr,
+    pub(crate) rhs: Expr,
+    pub(crate) location: Location,
 }
 
 impl BinaryExpr {
@@ -340,9 +380,9 @@ impl BinaryExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct UnaryExpr {
-    operator: UnaryOperator,
-    expr: Expr,
-    location: Location,
+    pub(crate) operator: UnaryOperator,
+    pub(crate) expr: Expr,
+    pub(crate) location: Location,
 }
 
 impl UnaryExpr {
@@ -359,8 +399,8 @@ impl UnaryExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct MapExpr {
-    entries: indexmap::IndexMap<StringExpr, Expr>,
-    location: Location,
+    pub(crate) entries: indexmap::IndexMap<StringExpr, Expr>,
+    pub(crate) location: Location,
 }
 
 impl MapExpr {
@@ -377,8 +417,8 @@ impl MapExpr {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct StringExpr {
-    value: String,
-    location: Location
+    pub(crate) value: String,
+    pub(crate) location: Location
 }
 
 impl StringExpr {
@@ -388,15 +428,14 @@ impl StringExpr {
 
     #[inline]
     pub fn value(&self) -> &str { &self.value }
-
     #[inline]
     pub fn location(&self) -> &Location { &self.location }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct RegexExpr {
-    value: String,
-    location: Location
+    pub(crate) value: String,
+    pub(crate) location: Location
 }
 
 impl RegexExpr {
@@ -413,8 +452,8 @@ impl RegexExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BoolExpr {
-    value: bool,
-    location: Location
+    pub(crate) value: bool,
+    pub(crate) location: Location
 }
 
 impl BoolExpr {
@@ -430,8 +469,8 @@ impl BoolExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct IntExpr {
-    value: i64,
-    location: Location
+    pub(crate) value: i64,
+    pub(crate) location: Location
 }
 
 impl IntExpr {
@@ -447,8 +486,8 @@ impl IntExpr {
 
 #[derive(Debug)]
 pub struct FloatExpr {
-    value: f64,
-    location: Location
+    pub(crate) value: f64,
+    pub(crate) location: Location
 }
 
 impl FloatExpr {
@@ -476,8 +515,8 @@ impl Eq for FloatExpr {}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CharExpr {
-    value: char,
-    location: Location
+    pub(crate) value: char,
+    pub(crate) location: Location
 }
 
 impl CharExpr {
@@ -494,8 +533,8 @@ impl CharExpr {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct RangeIntExpr {
-    value: RangeType<i64>,
-    location: Location
+    pub(crate) value: RangeType<i64>,
+    pub(crate) location: Location
 }
 
 impl RangeIntExpr {
@@ -512,8 +551,8 @@ impl RangeIntExpr {
 
 #[derive(Debug)]
 pub struct RangeFloatExpr {
-    value: RangeType<f64>,
-    location: Location
+    pub(crate) value: RangeType<f64>,
+    pub(crate) location: Location
 }
 
 impl RangeFloatExpr {

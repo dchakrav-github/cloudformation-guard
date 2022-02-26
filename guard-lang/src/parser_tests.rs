@@ -220,14 +220,20 @@ fn test_parse_int() {
         "100",
         "200E",
         "0",
-        "0123K-12"
+        "0123K-12",
+        "+10",
+        "-10",
+        "+12E+10", // technically float but will be parsed as integer, order matters
     ];
 
     let expected = [
         100,
         200,
         0,
-        123
+        123,
+        10,
+        -10,
+        12
     ];
 
     success.iter().zip(&expected).for_each(
@@ -246,6 +252,11 @@ fn test_parse_int() {
                     if *expected == 123 {
                         assert_eq!(span.get_column(), 5);
                         assert_eq!(*span.fragment(), "K-12");
+                    }
+
+                    if *expected == 12 {
+                        assert_eq!(span.get_column(), 4);
+                        assert_eq!(*span.fragment(), "E+10");
                     }
                 },
                 _ => unreachable!()
@@ -275,6 +286,68 @@ fn test_parse_int() {
 }
 
 #[test]
+fn test_parse_float_value() {
+    let success = [
+        "10.9",
+        ".9",
+        "1.",
+        "1e10",
+        "1e-10",
+        "1.2E10"
+    ];
+
+    let expected : Vec<f64> = success.iter().map(|s| s.parse::<f64>().unwrap()).collect();
+
+    success.iter().zip(&expected)
+        .for_each(
+            |(to_parse, expected)| {
+                let span = Span::new_extra(*to_parse, "");
+                let result = parse_float(span);
+                println!("{} {:?}", expected, result);
+                assert_eq!(result.is_ok(), true);
+                match result.unwrap().1 {
+                    Expr::Float(val) => {
+                        assert_eq!(val.value(), *expected);
+                    },
+                    _ => unreachable!()
+                }
+            }
+        );
+
+    let failures = [
+        "10",
+        "10K",
+        "10 ",
+        "",
+        "error"
+    ];
+
+    let locations = [
+        Location::new(1, 3),
+        Location::new(1, 3),
+        Location::new(1, 3),
+        Location::new(1, 1),
+        Location::new(1, 1)
+    ];
+
+    failures.iter().zip(&locations).for_each(
+        |(to_parse, location)| {
+            let span = Span::new_extra(*to_parse, "");
+            let result = parse_float(span);
+            assert_eq!(result.is_err(), true);
+            match result.unwrap_err() {
+                nom::Err::Error(pe) |
+                nom::Err::Failure(pe) => {
+                    assert_eq!(pe.get_location(), location);
+                },
+                _ => unreachable!()
+            }
+        }
+    )
+
+}
+
+#[test]
 fn test_parse_range() {
     let success = [
         "r(10, 20)",
@@ -300,6 +373,7 @@ fn test_parse_range() {
             |(to_parse, expected)| {
                 let span = Span::new_extra(*to_parse, "");
                 let range = parse_range(span);
+                println!("{} {:?}", to_parse, range);
                 assert_eq!(range.is_ok(), true);
                 match range.unwrap().1 {
                     Expr::RangeInt(range) => {
@@ -328,6 +402,7 @@ fn test_parse_range() {
             |(to_parse, expected)| {
                 let span = Span::new_extra(*to_parse, "");
                 let range = parse_range(span);
+                println!("{} {:?}", to_parse, range);
                 assert_eq!(range.is_ok(), true);
                 match range.unwrap().1 {
                     Expr::RangeFloat(range) => {
@@ -391,7 +466,14 @@ fn test_parse_map() {
            size: # this is a comment
               10,
         }
-        "###
+        "###,
+        "{}",
+        r#"
+        { size: 10,
+          type: "goodwill",
+          amount: 10.5
+        }
+        "#,
     ];
 
     success.iter()
@@ -399,9 +481,43 @@ fn test_parse_map() {
             |to_parse| {
                 let span = Span::new_extra(*to_parse, "");
                 let result = parse_map(span);
+                println!("{:?}", result);
                 assert_eq!(result.is_ok(), true);
             }
         );
+
+    let failures = [
+        r###"{ size 10 }"###, // no value separator
+        "{ size: 20, { error: true } }", // no map key
+        r#"{ "touch": true, dimenstions: [ 10, 20, 30, ]"#,
+        "{",
+    ];
+
+    let expected_failures = [
+        Location::new(1, "{ size ".len() + 1),
+        Location::new(1, "{ size: 20, ".len() + 1),
+        Location::new(1, r#"{ "touch": true, dimenstions: [ 10, 20, 30, ]"#.len() + 1),
+        Location::new(1, "{".len() + 1),
+    ];
+
+    failures.iter().zip(&expected_failures)
+        .for_each(
+            |(to_parse, failure)| {
+                let span = Span::new_extra(*to_parse, "");
+                let result = parse_map(span);
+                assert_eq!(result.is_err(), true);
+                result.map_err(|err| {
+                    match err {
+                        nom::Err::Error(pe) |
+                        nom::Err::Failure(pe) => {
+                            assert_eq!(pe.get_location(), failure);
+                        },
+                        _ => unreachable!()
+                    }
+                    ()
+                });
+            }
+        )
 
 }
 
@@ -409,7 +525,8 @@ fn test_parse_map() {
 fn test_parse_collection() {
     let success = [
         "[10, 20]",
-        "[10, 20, 30, { mixed: true },]"
+        "[10, 20, 30, { mixed: true },]",
+        "[[10, 20], 30, [40, 50]]"
     ];
 
     success.iter()
@@ -421,4 +538,131 @@ fn test_parse_collection() {
                 assert_eq!(result.is_ok(), true);
             }
         );
+
+    let failures = [
+        "",
+        "[",
+        "[10, 40,",
+        "10, 40]",
+    ];
+
+    let locations = [
+        Location::new(1, 1),
+        Location::new(1, 2),
+        Location::new(1, "[10, 40,".len() + 1),
+        Location::new(1, 1)
+    ];
+
+    failures.iter().zip(&locations)
+        .for_each(
+            |(to_parse, location)| {
+                let span = Span::new_extra(*to_parse, "");
+                let result = parse_array(span);
+                assert_eq!(result.is_err(), true);
+                match result.unwrap_err() {
+                    nom::Err::Error(pe) => {
+                        assert_eq!(pe.get_location(), location);
+                    },
+                    _ => unreachable!()
+                }
+            }
+        );
+}
+
+#[test]
+fn test_parse_variable_reference() {
+    let success = [
+        "%var",
+        "%var2",
+        "%var_this"
+    ];
+
+    let expected: Vec<String> = success.iter().map(|s| s.replace("%", "")).collect();
+
+    success.iter().zip(&expected).for_each(|(to_parse, expected)| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_variable_reference(span);
+        assert_eq!(result.is_ok(), true);
+        match result.unwrap().1 {
+            Expr::VariableReference(sr) => {
+                assert_eq!(sr.value(), expected);
+            }
+            _ => unreachable!()
+        }
+    });
+
+    let failures = [
+        "",
+        "var",
+        "10%var",
+    ];
+
+    failures.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_variable_reference(span);
+        assert_eq!(result.is_err(), true);
+    })
+}
+
+#[test]
+fn test_parse_query_filter_segment() {
+    let success = [
+        "[name]",
+        "[ bucket_name ]",
+        r###"[ # comment here
+            bucket_name
+        ]"###,
+        "[ %names ]",
+        "[ 'lookup' ]",
+        "[1]",
+        r###"[ # select the set of names
+           %names]"###
+        // TODO need block expr to complete
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_query_filter_segment(span);
+        println!("{:?}", result);
+        assert_eq!(result.is_ok(), true);
+        match result.unwrap().1 {
+            (Expr::Variable(expr), None) => {
+                let StringExpr { value, .. } = *expr;
+                assert_eq!(value == "name" || value == "bucket_name", true);
+            },
+
+            (Expr::VariableReference(expr), None) => {
+                let StringExpr { value, .. } = *expr;
+                assert_eq!(value, "names");
+            },
+
+            (Expr::String(expr), None) => {
+                let StringExpr{ value, .. } = *expr;
+                assert_eq!(value, "lookup");
+            },
+
+            (Expr::Int(expr), None) => {
+                let IntExpr{ value, .. } = *expr;
+                assert_eq!(value, 1);
+            },
+
+            _ => unreachable!()
+        }
+    });
+
+    let failures = [
+        "",
+        //"[]",
+        //"[{}]"
+    ];
+
+    let locations = [
+        Location::new(1, 1),
+    ];
+
+    failures.iter().zip(&locations).for_each(|(to_parse, loc)| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_query_filter_segment(span);
+        assert_eq!(result.is_err(), true);
+    });
 }
