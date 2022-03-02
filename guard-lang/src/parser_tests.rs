@@ -622,7 +622,7 @@ fn test_parse_query_filter_segment() {
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
-        let result = parse_query_filter_segment(span);
+        let result = parse_query_filter_segment(parse_var_block)(span);
         println!("{:?}", result);
         assert_eq!(result.is_ok(), true);
         match result.unwrap().1 {
@@ -662,7 +662,163 @@ fn test_parse_query_filter_segment() {
 
     failures.iter().zip(&locations).for_each(|(to_parse, loc)| {
         let span = Span::new_extra(*to_parse, "");
-        let result = parse_query_filter_segment(span);
+        let result = parse_query_filter_segment(parse_var_block)(span);
         assert_eq!(result.is_err(), true);
     });
+}
+
+#[test]
+fn test_parse_query() {
+    let success = [
+        "Resources.*.Properties.Tags",
+        "Resources[name].Properties.Tags",
+        "Resources",
+        "Resources[%buckets].Properties.Tags",
+    ];
+
+    success.iter() .for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_select(span);
+        assert_eq!(result.is_ok(), true);
+        match result.unwrap().1 {
+            Expr::Select(query) => {
+                let QueryExpr { parts, .. } = *query;
+                for (idx, expr) in parts.iter().enumerate() {
+                    match idx {
+                        0 => {
+                            if let Expr::String(s) = expr {
+                                assert_eq!(s.value, "Resources");
+                            }
+                        },
+                        1 => {
+                            match expr {
+                                Expr::String(s) => {
+                                    let value = s.value();
+                                    assert_eq!(value, "*");
+                                },
+                                Expr::Variable(var) => {
+                                        let value = var.value();
+                                        assert_eq!(value, "name");
+                                },
+                                Expr::VariableReference(var_ref) => {
+                                    assert_eq!(var_ref.value(), "buckets");
+                                },
+                                _ => unreachable!()
+                            }
+                        },
+                        2 => {
+                            if let Expr::String(s) = expr {
+                                assert_eq!(s.value(), "Properties")
+                            }
+                        },
+                        3 => {
+                            if let Expr::String(s) = expr {
+                                assert_eq!(s.value(), "Tags")
+                            }
+                        },
+                        _ => unreachable!()
+                    }
+                }
+            },
+            _ => unreachable!()
+        }
+    })
+}
+
+#[test]
+fn test_unary_operator() {
+    let operators = [
+        "EXISTS",
+        "EMPTY",
+        "IS_BOOL",
+        "IS_STRING",
+        "IS_INT",
+        "IS_FLOAT",
+        "IS_REGEX",
+        "IS_LIST",
+        "IS_MAP",
+        "NOT"
+    ];
+
+    let expected = [
+        (UnaryOperator::Exists, UnaryOperator::NotExists),
+        (UnaryOperator::Empty, UnaryOperator::NotEmpty),
+        (UnaryOperator::IsBool, UnaryOperator::IsNotBool),
+        (UnaryOperator::IsString, UnaryOperator::IsNotString),
+        (UnaryOperator::IsInt, UnaryOperator::IsNotInt),
+        (UnaryOperator::IsFloat, UnaryOperator::IsNotFloat),
+        (UnaryOperator::IsRegex, UnaryOperator::IsNotRegex),
+        (UnaryOperator::IsList, UnaryOperator::IsNotList),
+        (UnaryOperator::IsMap, UnaryOperator::IsNotMap),
+        (UnaryOperator::Not, UnaryOperator::Not)
+    ];
+
+    let operators: Vec<(String, String, String, String)> = operators.iter()
+        .map(|s| (s.to_string(), s.to_lowercase()))
+        .zip(&["!", "NOT", "not"])
+        .map(
+            |((upper, lower), not)| {
+                let (not_upper, not_lower) = (format!("{} {}", not, upper), format!("{} {}", not, lower));
+                (upper, lower, not_upper, not_lower)
+            }
+        )
+        .collect();
+
+    operators.iter().zip(&expected).for_each(|(operators, expected)| {
+        let span = Span::new_extra(&operators.0, "");
+        let result = unary_cmp_operator(span);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap().1, expected.0);
+
+        let span = Span::new_extra(&operators.1, "");
+        let result = unary_cmp_operator(span);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap().1, expected.0);
+
+        let span = Span::new_extra(&operators.2, "");
+        let result = unary_cmp_operator(span);
+        println!("{}, {:?}", &operators.2, result);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap().1, expected.1);
+
+        let span = Span::new_extra(&operators.3, "");
+        let result = unary_cmp_operator(span);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap().1, expected.1);
+    });
+
+}
+
+#[test]
+fn test_parse_unary_expr() {
+    let success = [
+        "Resources[*].Properties.Tags EXISTS",
+        "Resources.*.Properties.Tags !EXISTS",
+        "Resources[name].Properties.Tags EMPTY",
+        "Resources[%buckets].Properties.Tags NOT EMPTY",
+    ];
+
+    for (idx, expr) in success.iter().enumerate() {
+        let span = Span::new_extra(expr, "");
+        let result = parse_unary_bool_expr(span);
+        println!("{} {:?}", expr, result);
+        assert_eq!(result.is_ok(), true);
+        let unary = match result.unwrap().1 {
+            Expr::UnaryOperation(ue) => *ue,
+            _ => unreachable!()
+        };
+        match idx {
+            0 => {
+                if let Expr::Select(query) = unary.expr {
+                    assert_eq!(query.parts.len(), 4);
+                }
+                //assert_eq!()
+            },
+            1 => {},
+            2 => {},
+            3 => {},
+            _ => unreachable!()
+        }
+
+    }
 }

@@ -261,9 +261,12 @@ fn parse_bool(input: Span) -> IResult<Span, Expr> {
 }
 
 //
+// FLOAT        ::= (+|-) ( INT EXP | DOTTED (EXP)? )
+// DOTTED       ::= digit1 '.' digit1 |
+//                  '.' digit1 |
+//                  digit '.'
+// EXPT         ::= (e|E) (+|-) digit1
 //
-//
-
 fn parse_float(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let i = input.clone();
@@ -286,6 +289,9 @@ fn parse_float(input: Span) -> IResult<Span, Expr> {
     Ok((input, Expr::Float(Box::new(FloatExpr::new(value, location)))))
 }
 
+//
+// CHAR         ::= "'" char "'"
+//
 fn parse_char(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, ch) = anychar(input)?;
@@ -297,15 +303,15 @@ fn range_value<'a, P, O>(parse: P) -> impl Fn(Span<'a>) -> IResult<Span<'a>, (O,
 {
     move |input: Span| {
         let parser = |i| parse(i);
-        delimited(
-            zero_or_more_ws_or_comment,
-            //separated_pair(|i| parse(i), char(','), |i| parse(i)),
+        strip_comments_space(
             separated_pair(parser, strip_comments_space(char(',')), parser),
-            zero_or_more_ws_or_comment,
         )(input)
     }
 }
 
+//
+// RANGE        ::= 'r' ('(' | '[') (COM | SPC)* (INT | FLOAT) (COM | SPC)* ( ')' | ']' )
+//
 fn parse_range(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, _range) = char('r')(input)?;
@@ -434,6 +440,11 @@ fn parse_map_key_value_sep(input: Span) -> IResult<Span, ()> {
     empty_value(char(':'))(input)
 }
 
+//
+// MAP          ::= '{' (COM|SPACE)* KEY (COM|SPACE)* SEPARATOR (COM|SPACE)* VALUE '}'
+// SEPARATOR    ::= ':'
+// KEY          ::= PROPERTY_NAME | STRING
+//
 fn parse_map(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, _start_bracket) = parse_start_bracket(input)?;
@@ -526,6 +537,9 @@ fn parse_array(input: Span) -> IResult<Span, Expr> {
     }
 }
 
+//
+// VALUE        ::= SCALAR | MAP | ARRAY | NULL
+//
 fn parse_value(input: Span) -> IResult<Span, Expr> {
     strip_comments_space(alt((
         parse_scalar_value,
@@ -568,10 +582,6 @@ fn parse_property_name(input: Span) -> IResult<Span, Expr> {
     strip_comments_space(var_name)(input)
 }
 
-fn parse_block_inner_expr(input: Span) -> IResult<Span, BlockExpr> {
-    todo!()
-}
-
 fn parse_query_simple_segment(input: Span) -> IResult<Span, Expr> {
     strip_comments_space(
         alt((
@@ -579,6 +589,7 @@ fn parse_query_simple_segment(input: Span) -> IResult<Span, Expr> {
             parse_variable_reference,
             parse_all_reference,
             parse_string,
+            parse_int_value
         ))
     )(input)
 }
@@ -614,23 +625,204 @@ fn parse_var_block(input: Span) -> IResult<Span, (Expr, Option<Expr>)> {
     }
 }
 
-fn parse_query_filter_segment(input: Span) -> IResult<Span, (Expr, Option<Expr>)> {
-    let (input, _start_braces) = parse_start_braces(input)?;
-    let (input, expr) = strip_comments_space(alt( (
-        map(alt(( parse_string, parse_int_value, parse_all_reference, parse_variable_reference)), |e| (e, None)),
-        parse_var_block
-    )))(input)?;
-    let (input, _end_braces) = cut(parse_end_braces)(input)?;
-    Ok((input, expr))
+fn parse_query_filter_segment<'a, F>(filter: F) -> impl Fn(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
+where
+    F: Fn(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
+{
+    move |input: Span| {
+        let (input, _start_braces) = parse_start_braces(input)?;
+        let (input, expr) = strip_comments_space(alt((
+            map(alt((parse_string, parse_int_value, parse_all_reference, parse_variable_reference)), |e| (e, None)),
+            |i| filter(i),
+        )))(input)?;
+        let (input, _end_braces) = cut(parse_end_braces)(input)?;
+        Ok((input, expr))
+    }
+}
+
+fn query_segment<'a, P, F>(parser: P, filter: F, input: Span<'a>, segements: &mut Vec<Expr>) -> IResult<Span<'a>, ()>
+where
+    P: Fn(Span<'a>) -> IResult<Span<'a>, Expr>,
+    F: Fn(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>,
+{
+    let (input, start) = strip_comments_space(parser)(input)?;
+    let (input, filter) = opt(parse_query_filter_segment(filter))(input)?;
+    segements.push(start);
+    if let Some(filter) = filter {
+        segements.push(filter.0);
+        if let Some(expr) = filter.1 {
+            segements.push(expr);
+        }
+    }
+    Ok((input, ()))
+}
+
+fn parse_query<'a, F>(filter: F, input: Span<'a>) -> IResult<Span<'a>, Expr>
+where
+    F: Fn(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
+{
+    let location = Location::new(input.location_line(), input.get_column());
+    let mut segments = Vec::with_capacity(4);
+    let (input, _) = query_segment(
+        alt((var_name, parse_variable_reference)),
+        |i| filter(i),
+        input,
+        &mut segments
+    )?;
+    let mut next = input;
+    loop {
+        match query_segment(
+            preceded(
+                char('.'),
+                parse_query_simple_segment,
+            ),
+            |i| filter(i),
+            next,
+            &mut segments) {
+            Ok((input, _)) => {
+                next = input;
+            },
+
+            Err(nom::Err::Error(_)) => {
+                return Ok((next, Expr::Select(Box::new(QueryExpr::new(segments, location)))))
+            },
+
+            Err(e) => return Err(e)
+        }
+    }
+}
+
+fn parse_select(input: Span) -> IResult<Span, Expr> {
+    parse_query(parse_var_block, input)
 }
 
 fn parse_assignment_query(input: Span) -> IResult<Span, Expr> {
+    parse_query(
+        map(parse_block_inner_expr, |e| (Expr::Filter(Box::new(e)), None)),
+        input
+    )
+}
+
+fn query_or_value(input: Span) -> IResult<Span, Expr> {
+    strip_comments_space(
+        alt((
+            parse_value,
+            parse_select,
+        ))
+    )(input)
+}
+
+fn binary_cmp_operator(input: Span) -> IResult<Span, BinaryOperator> {
+    strip_comments_space(alt( (
+        value(BinaryOperator::Equals, tag("==")),
+        value(BinaryOperator::NotEquals, tag("!=")),
+        value(BinaryOperator::Greater, tag(">")),
+        value(BinaryOperator::GreaterThanEquals, tag(">=")),
+        value(BinaryOperator::Lesser, tag("<")),
+        value(BinaryOperator::LesserThanEquals, tag("<=")),
+        value(BinaryOperator::In, alt((tag("in"), tag("IN")))),
+    )))(input)
+}
+
+fn parse_binary_bool_expr(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
-    let (input, start_query_expr) =  strip_comments_space(
-        alt((var_name, parse_variable_reference))
-    )(input)?;
+    let (input, (lhs, operator, rhs)) = tuple((
+        query_or_value,
+        binary_cmp_operator,
+        query_or_value
+    ))(input)?;
+    Ok((input, Expr::BinaryOperation(Box::new(BinaryExpr{lhs, rhs, location, operator}))))
+}
+
+fn not(input: Span) -> IResult<Span, UnaryOperator> {
+    strip_comments_space(value(UnaryOperator::Not, alt((tag("not"), tag("NOT"), tag("!")))))
+        (input)
+}
+
+fn unary_operator<'a, P, O3>(
+    parser: P, op: UnaryOperator, not_op: UnaryOperator) -> impl Fn(Span<'a>) -> IResult<Span<'a>, UnaryOperator>
+where
+    P: Fn(Span<'a>) -> IResult<Span<'a>, O3>
+{
+    move |input: Span| {
+        let (input, not) = opt(not)(input)?;
+        let (input, value) = value(op, |i| parser(i))(input)?;
+        Ok((input, not.map_or(value, |_| not_op)))
+    }
+}
+
+fn unary_cmp_operator(input: Span) -> IResult<Span, UnaryOperator> {
+    strip_comments_space(alt((
+        unary_operator(
+        alt((tag("EMPTY"), tag("empty"))),
+        UnaryOperator::Empty, UnaryOperator::NotEmpty),
+
+        unary_operator(
+            alt((tag("EXISTS"), tag("exists"))),
+            UnaryOperator::Exists, UnaryOperator::NotExists),
+
+        unary_operator(
+            alt((tag("is_string"), tag("IS_STRING"))),
+            UnaryOperator::IsString, UnaryOperator::IsNotString),
+
+        unary_operator(
+            alt((tag("is_list"), tag("IS_LIST"))),
+            UnaryOperator::IsList, UnaryOperator::IsNotList),
+
+        unary_operator(
+            alt((tag("is_int"), tag("IS_INT"))),
+            UnaryOperator::IsInt, UnaryOperator::IsNotInt),
+
+        unary_operator(
+            alt((tag("is_float"), tag("IS_FLOAT"))),
+            UnaryOperator::IsFloat, UnaryOperator::IsNotFloat),
+
+        unary_operator(
+            alt((tag("is_float"), tag("IS_FLOAT"))),
+            UnaryOperator::IsFloat, UnaryOperator::IsNotFloat),
+
+        unary_operator(
+            alt((tag("is_bool"), tag("IS_BOOL"))),
+            UnaryOperator::IsBool, UnaryOperator::IsNotBool),
+
+        unary_operator(
+            alt((tag("is_regex"), tag("IS_REGEX"))),
+            UnaryOperator::IsRegex, UnaryOperator::IsNotRegex),
+
+    )))(input)
+}
+
+fn unary_expr(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, (expr, operator)) = tuple((
+        query_or_value,
+        unary_cmp_operator
+    ))(input)?;
+    Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr{location, expr, operator}))))
+
+}
+
+fn parse_unary_bool_expr(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, is_not) = opt(not)(input)?;
+    match is_not {
+        Some(operator) =>{
+            let (input, expr) = alt((
+                parse_binary_bool_expr,
+                unary_expr,
+            ))(input)?;
+            Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr{operator, expr, location}))))
+        },
+        None => {
+            unary_expr(input)
+        }
+    }
+}
+
+fn parse_block_inner_expr(input: Span) -> IResult<Span, BlockExpr> {
     todo!()
 }
+
 
 //fn parse_let(input: Span) -> IResult<Span, Expr> {
 //    let location = Location::new(

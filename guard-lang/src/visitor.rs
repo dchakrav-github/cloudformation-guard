@@ -4,43 +4,138 @@ use super::Location;
 use std::error::Error;
 use std::fmt::Formatter;
 
-#[derive(Debug)]
-pub struct UnhandledExprError<'expr> {
-    expr: &'expr str
-}
+pub trait Visitor: Sized {
 
-impl<'expr> std::error::Error for UnhandledExprError<'expr> {}
-impl<'expr> std::fmt::Display for UnhandledExprError<'expr> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    type Value;
+    type Error;
+
+    fn visit_rule(self,
+                  expr: &Expr,
+                  _rule: &RuleExpr)     -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
     }
-}
 
-pub trait Visitor<E: std::error::Error> {
-    type Output;
-    type Error: std::error::Error;
-
-    fn visit(&mut self, expr: &Expr) -> Result<Self::Output, Self::Error> {
-        todo!()
-//        match expr {
-//            Expr::Rule(value_expr) => self.visit_rule(value_expr),
-//            Expr::Let(value_expr) => self.visit_let(value_expr),
-//            Expr::When(value_expr) => self.visit_when(value_expr),
-//            Expr::Type(value_expr) => self.visit_type(value_expr),
-//            Expr::Select(value_expr) => self.visit_query(value_expr),
-//            Expr::BinaryOperation(value_expr) => self.visit_binary_operation(value_expr),
-//            Expr::UnaryOperation(value_expr) => self.visit_unary_operation(value_expr),
-//            Expr::Array(value_expr) => self.visit_array(value_expr),
-//            Expr::Map(value_expr) => self.visit_map(value_expr),
-//            Expr::Null(value_expr) => self.visit_null(value_expr),
-//            Expr::String(value_expr) => self.visit_string(value_expr),
-//            Expr::Regex(value_expr) => self.visit_regex(value_expr),
-//            Expr::Char(value_expr) => self.visit_char(value_expr),
-//            Expr::Bool(value_expr) => self.visit_bool(value_expr),
-//            Expr::Int(value_expr) => self.visit_int(value_expr),
-//            Expr::Float(value_expr) => self.visit_float(value_expr),
-//            Expr::RangeInt(value_expr) => self.visit_range_int(value_expr),
-//            Expr::RangeFloat(value_expr) => self.visit_range_float(value_expr),
-//        }
+    fn visit_let(self,
+                 expr: &Expr,
+                 _value: &LetExpr)      -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
     }
+
+    fn visit_when(self,
+                  expr: &Expr,
+                  _value: &WhenExpr)    -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_select(self,
+                    expr: &Expr,
+                    _value: &QueryExpr) -> Result<Self::Value, Self::Error> {
+		self.visit_any(expr)
+	}
+
+    fn visit_binary_operation(self,
+                              expr: &Expr,
+                              _value: &BinaryExpr) -> Result<Self::Value, Self::Error> {
+		self.visit_any(expr)
+	}
+
+    fn visit_unary_operation(self,
+                             expr: &Expr,
+                             _value: &UnaryExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_array(self,
+                   expr: &Expr,
+                   _value: &ArrayExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_map(self,
+                 expr: &Expr,
+                 _value: &MapExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_null(self,
+                  expr: &Expr,
+                  _value: &Location) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_string(self,
+                    expr: &Expr,
+                    _value: &StringExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_regex(self,
+                   expr: &Expr,
+                   _value: &RegexExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_char(self,
+                  expr: &Expr,
+                  _value: &CharExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_bool(self,
+                  expr: &Expr,
+                  _value: &BoolExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_int(self,
+                 expr: &Expr,
+                 _value: &IntExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_float(self,
+                   expr: &Expr,
+                   _value: &FloatExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_range_int(self,
+                       expr: &Expr,
+                       _value: &RangeIntExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_range_float(self,
+                         expr: &Expr,
+                         _value: &RangeFloatExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_filter(self,
+                    expr: &Expr,
+                    _value: &BlockExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_variable(self,
+                      expr: &Expr,
+                      _value: &StringExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_variable_reference(self,
+                                expr: &Expr,
+                                _value: &StringExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_block(self,
+                   expr: &Expr,
+                   _value: &BlockClauseExpr) -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
+    fn visit_any(self, expr: &Expr) -> Result<Self::Value, Self::Error>;
+
+
 }

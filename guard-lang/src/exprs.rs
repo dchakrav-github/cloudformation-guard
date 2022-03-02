@@ -187,6 +187,15 @@ pub enum UnaryOperator {
     IsFloat,
     IsBool,
     IsRegex,
+    NotExists,
+    NotEmpty,
+    IsNotString,
+    IsNotList,
+    IsNotMap,
+    IsNotInt,
+    IsNotFloat,
+    IsNotBool,
+    IsNotRegex,
     Not,
 }
 
@@ -338,24 +347,6 @@ impl QueryExpr {
     #[inline]
     pub fn location(&self) -> &Location { &self.location }
 }
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct FilterExpr {
-    expr: Expr,
-    location: Location,
-}
-
-impl FilterExpr {
-    pub fn new(expr: Expr, location: Location) -> Self {
-        FilterExpr { expr, location }
-    }
-
-    #[inline]
-    pub fn expr(&self) -> &Expr { &self.expr }
-    #[inline]
-    pub fn location(&self) -> &Location { &self.location }
-}
-
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BinaryExpr {
