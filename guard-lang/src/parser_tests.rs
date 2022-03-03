@@ -1,5 +1,5 @@
 use super::*;
-use nom::Err;
+use crate::visitor::Visitor;
 
 #[test]
 fn test_parser_name() {
@@ -31,7 +31,7 @@ fn test_parser_name() {
             (Span::new_extra(*s, ""),
              s.split(" ").next().map_or("", std::convert::identity))
         )
-        .for_each(|(span, compare)| {
+        .for_each(|(span, _compare)| {
             let result = parse_name(span);
             assert_eq!(result.is_err(), true);
         });
@@ -170,7 +170,7 @@ fn test_parse_regex() {
     ];
 
     success.iter().map(|s| {
-        let mut to_match = s.replace("\\/", "/");
+        let to_match = s.replace("\\/", "/");
         let mut to_chars = to_match.chars();
         to_chars.next();
         to_chars.next_back();
@@ -303,7 +303,6 @@ fn test_parse_float_value() {
             |(to_parse, expected)| {
                 let span = Span::new_extra(*to_parse, "");
                 let result = parse_float(span);
-                println!("{} {:?}", expected, result);
                 assert_eq!(result.is_ok(), true);
                 match result.unwrap().1 {
                     Expr::Float(val) => {
@@ -373,7 +372,6 @@ fn test_parse_range() {
             |(to_parse, expected)| {
                 let span = Span::new_extra(*to_parse, "");
                 let range = parse_range(span);
-                println!("{} {:?}", to_parse, range);
                 assert_eq!(range.is_ok(), true);
                 match range.unwrap().1 {
                     Expr::RangeInt(range) => {
@@ -402,7 +400,6 @@ fn test_parse_range() {
             |(to_parse, expected)| {
                 let span = Span::new_extra(*to_parse, "");
                 let range = parse_range(span);
-                println!("{} {:?}", to_parse, range);
                 assert_eq!(range.is_ok(), true);
                 match range.unwrap().1 {
                     Expr::RangeFloat(range) => {
@@ -432,9 +429,8 @@ fn test_parse_range() {
             |(to_parse, loc)| {
                 let span = Span::new_extra(*to_parse, "");
                 let result = parse_range(span);
-                println!("{:?}", result);
                 assert_eq!(result.is_err(), true);
-                result.map_err(|err| match err {
+                let _ =result.map_err(|err| match err {
                     nom::Err::Error(pe) |
                     nom::Err::Failure(pe) => {
                         assert_eq!(pe.get_location(), loc);
@@ -481,7 +477,6 @@ fn test_parse_map() {
             |to_parse| {
                 let span = Span::new_extra(*to_parse, "");
                 let result = parse_map(span);
-                println!("{:?}", result);
                 assert_eq!(result.is_ok(), true);
             }
         );
@@ -506,7 +501,7 @@ fn test_parse_map() {
                 let span = Span::new_extra(*to_parse, "");
                 let result = parse_map(span);
                 assert_eq!(result.is_err(), true);
-                result.map_err(|err| {
+                let _ = result.map_err(|err| {
                     match err {
                         nom::Err::Error(pe) |
                         nom::Err::Failure(pe) => {
@@ -534,7 +529,6 @@ fn test_parse_collection() {
             |to_parse| {
                 let span = Span::new_extra(*to_parse, "");
                 let result = parse_array(span);
-                println!("{:?}", result);
                 assert_eq!(result.is_ok(), true);
             }
         );
@@ -623,7 +617,6 @@ fn test_parse_query_filter_segment() {
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
         let result = parse_query_filter_segment(parse_var_block)(span);
-        println!("{:?}", result);
         assert_eq!(result.is_ok(), true);
         match result.unwrap().1 {
             (Expr::Variable(expr), None) => {
@@ -664,6 +657,10 @@ fn test_parse_query_filter_segment() {
         let span = Span::new_extra(*to_parse, "");
         let result = parse_query_filter_segment(parse_var_block)(span);
         assert_eq!(result.is_err(), true);
+        if let nom::Err::Error(e) = result.unwrap_err() {
+            assert_eq!(e.get_location(), loc);
+        }
+
     });
 }
 
@@ -777,7 +774,6 @@ fn test_unary_operator() {
 
         let span = Span::new_extra(&operators.2, "");
         let result = unary_cmp_operator(span);
-        println!("{}, {:?}", &operators.2, result);
         assert_eq!(result.is_ok(), true);
         assert_eq!(result.unwrap().1, expected.1);
 
@@ -796,29 +792,195 @@ fn test_parse_unary_expr() {
         "Resources.*.Properties.Tags !EXISTS",
         "Resources[name].Properties.Tags EMPTY",
         "Resources[%buckets].Properties.Tags NOT EMPTY",
+        "Resources.%buckets.Properties.Tags NOT EMPTY",
+        r#"Resources.
+            %buckets.
+            Properties.
+            Tags NOT EMPTY"#,
+        r###"Resources.
+            # extract the list of buckets we used
+            %buckets.
+            Properties.
+            # checking if Tags EXISTS and is not EMPTY
+            Tags !EMPTY"###,
+        r#"not Resources EXISTS"#
     ];
 
-    for (idx, expr) in success.iter().enumerate() {
+    for (_idx, expr) in success.iter().enumerate() {
         let span = Span::new_extra(expr, "");
         let result = parse_unary_bool_expr(span);
-        println!("{} {:?}", expr, result);
         assert_eq!(result.is_ok(), true);
-        let unary = match result.unwrap().1 {
-            Expr::UnaryOperation(ue) => *ue,
-            _ => unreachable!()
-        };
-        match idx {
-            0 => {
-                if let Expr::Select(query) = unary.expr {
-                    assert_eq!(query.parts.len(), 4);
+        let unary = result.unwrap().1;
+        struct UnaryVisitor{};
+        impl<'expr> Visitor<'expr> for UnaryVisitor {
+            type Value = ();
+            type Error = String;
+
+            fn visit_unary_operation(self, _expr: &'expr Expr, value: &'expr UnaryExpr) -> Result<Self::Value, Self::Error> {
+                if value.operator == UnaryOperator::Not {
+                    return value.expr.accept(UnaryVisitor{});
                 }
-                //assert_eq!()
-            },
-            1 => {},
-            2 => {},
-            3 => {},
-            _ => unreachable!()
+                assert_eq!(value.operator == UnaryOperator::Exists ||
+                           value.operator == UnaryOperator::NotExists ||
+                           value.operator == UnaryOperator::Empty ||
+                           value.operator == UnaryOperator::NotEmpty, true);
+                struct ExpectQuery{};
+                impl<'expr> Visitor<'expr> for ExpectQuery {
+                    type Value = ();
+                    type Error = String;
+
+                    fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+                        assert_eq!(value.parts.len() == 4 || value.parts.len() == 1, true);
+                        struct ExpectedPart{};
+                        impl<'expr> Visitor<'expr> for ExpectedPart {
+                            type Value = ();
+                            type Error = String;
+
+                            fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+                                assert_eq!(
+                                    value.value == "Resources" ||
+                                    value.value == "*" ||
+                                    value.value == "Properties" ||
+                                    value.value == "Tags",
+                                    true
+                                );
+                                Ok(())
+                            }
+
+                            fn visit_variable(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+                                assert_eq!(
+                                    value.value, "name"
+                                );
+                                Ok(())
+                            }
+
+                            fn visit_variable_reference(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+                                assert_eq!(
+                                    value.value, "buckets"
+                                );
+                                Ok(())
+                            }
+
+
+                            fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+                                Err(format!("Unexpected Expr {:?}", expr))
+                            }
+                        }
+                        for each in &value.parts {
+                            each.accept(ExpectedPart{})?;
+                        }
+                        Ok(())
+                    }
+
+
+                    fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+                        Err(format!("Unexpected Expr {:?}", expr))
+                    }
+                }
+                value.expr.accept(ExpectQuery{})?;
+                Ok(())
+            }
+
+
+            fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+                Err(format!("Unexpected expr {:?}", expr))
+            }
+        }
+        let result = unary.accept(UnaryVisitor{});
+        assert_eq!(result.is_ok(), true);
+    }
+}
+
+#[test]
+fn test_or_disjunctions() {
+    let success = [
+        "Resources EXISTS or resourceType EXISTS",
+        "Resources EXISTS || configuration EXISTS",
+        r#"Resources EXISTS OR configuration.Properties.Principals != '*'"#,
+        r###"Resources EXISTS # this is embedded comment
+             || resourceType EXISTS
+        "###,
+        "Resources EXISTS", // returns unary expr
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = or_disjunctions(span);
+        println!("{} {:?}", to_parse, result);
+        assert_eq!(result.is_ok(), true);
+        struct AssertionsVisitor{};
+        impl<'expr> Visitor<'expr> for AssertionsVisitor {
+            type Value = ();
+            type Error = String;
+
+            fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+                let length = value.parts.len();
+                assert_eq!(length == 1 || length == 3, true);
+                for each in &value.parts {
+                    each.accept(AssertionsVisitor{})?;
+                }
+                Ok(())
+            }
+
+            fn visit_binary_operation(self, _expr: &'expr Expr, value: &'expr BinaryExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(
+                    value.operator == BinaryOperator::Or ||
+                    value.operator == BinaryOperator::NotEquals, true);
+                value.lhs.accept(AssertionsVisitor{})?;
+                value.rhs.accept(AssertionsVisitor{})?;
+                Ok(())
+            }
+
+            fn visit_unary_operation(self, _expr: &'expr Expr, value: &'expr UnaryExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(value.operator, UnaryOperator::Exists);
+                value.expr.accept(AssertionsVisitor{})?;
+                Ok(())
+            }
+
+
+
+            fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(
+                    value.value == "Resources"       ||
+                    value.value == "resourceType"    ||
+                    value.value == "configuration"   ||
+                    value.value == "Properties"      ||
+                    value.value == "Principals"      ||
+                    value.value == "*",
+                    true
+                );
+                Ok(())
+            }
+
+            fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+                Err(format!("Unexpected expression {:?}", expr))
+            }
+        }
+        let result = result.unwrap().1.accept(AssertionsVisitor{});
+        assert_eq!(result.is_ok(), true);
+    });
+
+    struct LocationExtrator{};
+    impl<'expr> Visitor<'expr> for LocationExtrator {
+        type Value = &'expr Location;
+        type Error = String;
+
+        fn visit_rule(self, _expr: &'expr Expr, _rule: &'expr RuleExpr) -> Result<Self::Value, Self::Error> {
+            if let Some(params) = &_rule.parameters {
+                if !params.is_empty() {
+                    return Ok(params.get(0).unwrap().get_location())
+                }
+            }
+            Ok(&_rule.location)
         }
 
+        fn visit_let(self, _expr: &'expr Expr, _value: &'expr LetExpr) -> Result<Self::Value, Self::Error> {
+            Ok(&_value.location)
+        }
+
+        fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+            Err(format!("Unexpected expr {:?}", expr))
+        }
     }
+
 }

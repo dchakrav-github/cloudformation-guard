@@ -6,9 +6,6 @@ use nom::{Slice, InputTake};
 use nom::multi::{
     many0,
     many1,
-    fold_many1,
-    separated_list,
-    separated_nonempty_list
 };
 
 use nom::branch::alt;
@@ -17,45 +14,33 @@ use nom::bytes::complete::{
     take_till,
     is_not,
     take_while,
-    take_while1
 };
 use nom::character::complete::{
     char,
 	anychar,
-	multispace0,
 	multispace1,
-	space0,
-	space1,
 	digit1,
 	one_of,
 	alpha1,
-	newline,
-	digit0
 };
 use nom::combinator::{
     map,
 	value,
-	map_res,
 	opt,
-	all_consuming,
 	cut,
-	peek,
 	recognize
 };
 use nom::error::{
     context,
-    ErrorKind
 };
 use nom::number::complete::{
     double,
-    recognize_float
 };
 use nom::sequence::{
     delimited,
 	preceded,
 	separated_pair,
 	tuple,
-	pair,
 	terminated
 };
 use crate::Expr;
@@ -103,15 +88,6 @@ fn white_space_or_comment(input: Span) -> IResult<Span, ()> {
 }
 
 //
-// This provides extract for 1*(LWSP / commment). It does not indicate
-// failure when this isn't the case. Consumers of this combinator must use
-// cut or handle it as a failure if that is the right outcome
-//
-fn one_or_more_ws_or_comment(input: Span) -> IResult<Span, ()> {
-    value((), many1(white_space_or_comment))(input)
-}
-
-//
 // This provides extract for *(LWSP / comment), same as above but this one never
 // errors out
 //
@@ -132,11 +108,6 @@ fn strip_comments_space<'a, F, O>(parser: F) -> impl Fn(Span<'a>) -> IResult<Spa
         let (input, _comments) = zero_or_more_ws_or_comment(input)?;
         Ok((input, result))
     }
-}
-
-fn keyword<'a>(name: &str, input: Span<'a>) -> IResult<Span<'a>, ()> {
-    let (input, _keyword) = tag(name)(input)?;
-    Ok((input, ()))
 }
 
 //
@@ -568,20 +539,6 @@ fn parse_all_reference(input: Span) -> IResult<Span, Expr> {
     Ok((input, Expr::String(Box::new(StringExpr::new("*".to_string(), location)))))
 }
 
-fn parse_variable(input: Span) -> IResult<Span, Expr> {
-    map(
-        var_name,
-        |s| match s {
-            Expr::String(expr) => Expr::Variable(expr),
-            _ => unreachable!()
-        }
-    )(input)
-}
-
-fn parse_property_name(input: Span) -> IResult<Span, Expr> {
-    strip_comments_space(var_name)(input)
-}
-
 fn parse_query_simple_segment(input: Span) -> IResult<Span, Expr> {
     strip_comments_space(
         alt((
@@ -820,6 +777,64 @@ fn parse_unary_bool_expr(input: Span) -> IResult<Span, Expr> {
 }
 
 fn parse_block_inner_expr(input: Span) -> IResult<Span, BlockExpr> {
+    todo!()
+}
+
+fn reduce_ands_ors(mut exprs: Vec<Expr>, op: BinaryOperator) -> Expr {
+    if exprs.len() == 1 {
+        return exprs.pop().unwrap()
+    }
+    let lhs = exprs.pop().unwrap();
+    let location = Location::new(lhs.get_location().row() as u32, lhs.get_location().column());
+    Expr::BinaryOperation(Box::new(BinaryExpr {
+        operator: op,
+        lhs,
+        rhs: reduce_ands_ors(exprs, op),
+        location,
+    }))
+}
+
+fn or_operator(input: Span) -> IResult<Span, BinaryOperator> {
+    map(strip_comments_space(
+        alt((tag("or"), tag("OR"), tag("||")))), |s| BinaryOperator::Or
+    )(input)
+}
+
+fn or_disjunctions(input: Span) -> IResult<Span, Expr> {
+    let mut disjunctions = Vec::with_capacity(4);
+    let mut next = input;
+    let mut expecting_expr = false;
+    loop {
+        match strip_comments_space(alt((parse_unary_bool_expr, parse_binary_bool_expr)))(next) {
+            Err(nom::Err::Error(e)) => {
+                if disjunctions.is_empty() {
+                    return Err(nom::Err::Error(e))
+                }
+
+                if expecting_expr {
+                    return Err(nom::Err::Failure(ParseError::new(
+                        Location::new(next.location_line(), next.get_column()),
+                        format!("Dangling 'or' disjunction without expression following it")
+                    )))
+                }
+
+                return Ok((next, reduce_ands_ors(disjunctions, BinaryOperator::Or)))
+            },
+            Ok((i, expr)) => {
+                disjunctions.push(expr);
+                next = i;
+                match or_operator(next) {
+                    Ok((i, _or)) => { next = i; expecting_expr = true; },
+                    Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(disjunctions, BinaryOperator::Or))),
+                    Err(e) => return Err(e)
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
     todo!()
 }
 
