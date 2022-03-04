@@ -901,12 +901,14 @@ fn test_or_disjunctions() {
              || resourceType EXISTS
         "###,
         "Resources EXISTS", // returns unary expr
+        "Resources EXISTS or resourceType exists and configuration exists", // Wait why is this a success, it leaves
+                                                                            // 'and configuration exists' as is which will fail
+                                                                            // the next parser
     ];
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
         let result = or_disjunctions(span);
-        println!("{} {:?}", to_parse, result);
         assert_eq!(result.is_ok(), true);
         struct AssertionsVisitor{};
         impl<'expr> Visitor<'expr> for AssertionsVisitor {
@@ -960,27 +962,117 @@ fn test_or_disjunctions() {
         assert_eq!(result.is_ok(), true);
     });
 
-    struct LocationExtrator{};
-    impl<'expr> Visitor<'expr> for LocationExtrator {
-        type Value = &'expr Location;
-        type Error = String;
+    let failures = [
+        "",
+        "or Resource EXISTS",
+        "Resources EXISTS ||",
+    ];
 
-        fn visit_rule(self, _expr: &'expr Expr, _rule: &'expr RuleExpr) -> Result<Self::Value, Self::Error> {
-            if let Some(params) = &_rule.parameters {
-                if !params.is_empty() {
-                    return Ok(params.get(0).unwrap().get_location())
+    failures.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = or_disjunctions(span);
+        assert_eq!(result.is_err(), true);
+        println!("{} {:?}", to_parse, result);
+        let pe = match result.unwrap_err() {
+            nom::Err::Error(pe) |
+            nom::Err::Failure(pe) => pe,
+            _ => unreachable!()
+        };
+        println!("{:?} ", pe);
+        assert_eq!(
+            pe.get_location().column() == 1 ||
+            pe.get_location().column() == "or ".len() + 1 ||
+            pe.get_location().column() == "Resources EXISTS ||".len() + 1,
+            true
+        );
+    });
+}
+
+#[test]
+fn test_and_conjunctions() {
+    let success = [
+        "Resources EXISTS && Resources.*.Properties.Tags EXISTS",
+        r###"Resources EXISTS
+             Resources.*.Properties.Tags EXISTS
+        "###,
+        r###"Resources EXISTS &&
+             AWSTemplateVersion == /2010/ and
+             Hooks NOT EXISTS
+        "###,
+        r###"Resources EXISTS
+             AWSTemplateVersion == /2010/ or
+             Hooks.CodeDeploy EXISTS
+        "###,
+        r###"(Resources EXISTS && Hooks EXISTS) or
+             (Hooks.CodeDeploy EXISTS)
+        "###
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = and_conjunctions(span);
+        let mut my_vec: Vec<String> = Vec::new();
+        assert_eq!(result.is_ok(), true);
+        #[derive(Debug)]
+        struct Unhandled<'e> { expr: &'e Expr };
+        struct AssertionVisitor<'a> { vec: &'a mut Vec<String> };
+        impl<'expr, 'a> Visitor<'expr> for AssertionVisitor<'a> {
+            type Value = ();
+            type Error = Unhandled<'expr>;
+
+            fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+                for each in &value.parts {
+                    each.accept(AssertionVisitor{vec: self.vec})?;
                 }
+                Ok(())
             }
-            Ok(&_rule.location)
-        }
 
-        fn visit_let(self, _expr: &'expr Expr, _value: &'expr LetExpr) -> Result<Self::Value, Self::Error> {
-            Ok(&_value.location)
-        }
+            fn visit_binary_operation(self, _expr: &'expr Expr, value: &'expr BinaryExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(
+                    value.operator == BinaryOperator::And ||
+                    value.operator == BinaryOperator::Equals ||
+                    value.operator == BinaryOperator::Or,
+                    true
+                );
+                value.lhs.accept(AssertionVisitor{vec: self.vec})?;
+                value.rhs.accept(AssertionVisitor{vec: self.vec})?;
+                Ok(())
+            }
 
-        fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
-            Err(format!("Unexpected expr {:?}", expr))
-        }
-    }
+            fn visit_unary_operation(self, _expr: &'expr Expr, value: &'expr UnaryExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(value.operator == UnaryOperator::Exists || value.operator == UnaryOperator::NotExists, true);
+                value.expr.accept(AssertionVisitor{vec: self.vec})?;
+                Ok(())
+            }
 
+            fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+                self.vec.push(value.value.clone());
+                assert_eq!(
+                    value.value == "Resources" ||
+                    value.value == "*" ||
+                    value.value == "Properties" ||
+                    value.value == "Tags" ||
+                    value.value == "AWSTemplateVersion" ||
+                    value.value == "CodeDeploy" ||
+                    value.value == "Hooks",
+                    true
+                );
+                Ok(())
+            }
+
+            fn visit_regex(self, _expr: &'expr Expr, value: &'expr RegexExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(value.value, "2010");
+                Ok(())
+            }
+
+
+            fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+                Err(Unhandled{ expr })
+            }
+        }
+        let result = result.unwrap().1;
+        let asserts = result.accept(AssertionVisitor{vec: &mut my_vec});
+        assert_eq!(asserts.is_ok(), true);
+        println!("{:?}", my_vec);
+    })
 }

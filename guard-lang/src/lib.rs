@@ -8,7 +8,7 @@ mod visitor;
 mod exprs;
 mod internal;
 
-//pub use visitor::Visitor;
+pub use visitor::Visitor;
 pub use exprs::*;
 pub use types::*;
 

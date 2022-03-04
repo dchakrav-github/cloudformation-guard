@@ -5,7 +5,6 @@ use nom::{Slice, InputTake};
 
 use nom::multi::{
     many0,
-    many1,
 };
 
 use nom::branch::alt;
@@ -41,9 +40,9 @@ use nom::sequence::{
 	preceded,
 	separated_pair,
 	tuple,
-	terminated
 };
 use crate::Expr;
+use std::collections::VecDeque;
 
 type IResult<I, O> = nom::IResult<I, O, ParseError>;
 
@@ -780,11 +779,11 @@ fn parse_block_inner_expr(input: Span) -> IResult<Span, BlockExpr> {
     todo!()
 }
 
-fn reduce_ands_ors(mut exprs: Vec<Expr>, op: BinaryOperator) -> Expr {
+fn reduce_ands_ors(mut exprs: VecDeque<Expr>, op: BinaryOperator) -> Expr {
     if exprs.len() == 1 {
-        return exprs.pop().unwrap()
+        return exprs.pop_front().unwrap()
     }
-    let lhs = exprs.pop().unwrap();
+    let lhs = exprs.pop_front().unwrap();
     let location = Location::new(lhs.get_location().row() as u32, lhs.get_location().column());
     Expr::BinaryOperation(Box::new(BinaryExpr {
         operator: op,
@@ -795,47 +794,95 @@ fn reduce_ands_ors(mut exprs: Vec<Expr>, op: BinaryOperator) -> Expr {
 }
 
 fn or_operator(input: Span) -> IResult<Span, BinaryOperator> {
-    map(strip_comments_space(
-        alt((tag("or"), tag("OR"), tag("||")))), |s| BinaryOperator::Or
+    value(BinaryOperator::Or, strip_comments_space(
+        alt((tag("or"), tag("OR"), tag("||"))))
     )(input)
 }
 
-fn or_disjunctions(input: Span) -> IResult<Span, Expr> {
-    let mut disjunctions = Vec::with_capacity(4);
-    let mut next = input;
-    let mut expecting_expr = false;
-    loop {
-        match strip_comments_space(alt((parse_unary_bool_expr, parse_binary_bool_expr)))(next) {
-            Err(nom::Err::Error(e)) => {
-                if disjunctions.is_empty() {
-                    return Err(nom::Err::Error(e))
-                }
+fn and_operator(input: Span) -> IResult<Span, BinaryOperator> {
+    value(BinaryOperator::And, strip_comments_space(
+        alt((tag("and"), tag("AND"), tag("&&"))))
+    )(input)
+}
 
-                if expecting_expr {
-                    return Err(nom::Err::Failure(ParseError::new(
-                        Location::new(next.location_line(), next.get_column()),
-                        format!("Dangling 'or' disjunction without expression following it")
-                    )))
-                }
+fn group_operations(input: Span) -> IResult<Span, Expr> {
+    let (input, _parens) = strip_comments_space(char('('))(input)?;
+    let (input, expr) = strip_comments_space(
+        inline_expressions(alt((group_operations, parse_unary_or_binary_expr)))
+    )(input)?;
+    let (input, _end_parens) = cut(strip_comments_space(char((')'))))(input)?;
+    Ok((input, expr))
+}
 
-                return Ok((next, reduce_ands_ors(disjunctions, BinaryOperator::Or)))
+fn parse_unary_or_binary_expr(input: Span) -> IResult<Span, Expr> {
+    strip_comments_space(
+        alt((parse_unary_bool_expr, parse_binary_bool_expr)))(input)
+}
+
+fn inline_expressions<'a, P>(parser: P) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Expr>
+where
+    P: Fn(Span<'a>) -> IResult<Span<'a>, Expr>
+{
+    move |input: Span| {
+        let (input, lhs) = parser(input)?;
+        match alt((or_operator, and_operator))(input) {
+            Err(nom::Err::Error(_)) => return Ok((input, lhs)),
+            Ok((input, operation)) => {
+                let mut combined = VecDeque::with_capacity(4);
+                combined.push_back(lhs);
+                let (input, rhs) = parser(input)?;
+                combined.push_back(rhs);
+                let mut next = input;
+                loop {
+                    let result = if BinaryOperator::Or == operation {
+                        or_operator(next)
+                    } else {
+                        and_operator(next)
+                    };
+                    match result {
+                        Ok((input, _operator)) => {
+                            let (input, expr) = parser(input)?;
+                            combined.push_back(expr);
+                            next = input;
+                        },
+                        Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(combined, operation))),
+                        Err(e) => return Err(e)
+                    }
+                }
             },
-            Ok((i, expr)) => {
-                disjunctions.push(expr);
-                next = i;
-                match or_operator(next) {
-                    Ok((i, _or)) => { next = i; expecting_expr = true; },
-                    Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(disjunctions, BinaryOperator::Or))),
-                    Err(e) => return Err(e)
-                }
-            }
-            Err(e) => return Err(e),
+            Err(e) => return Err(e)
         }
     }
 }
 
+fn or_disjunctions(input: Span) -> IResult<Span, Expr> {
+    inline_expressions(parse_unary_or_binary_expr)(input)
+}
+
 fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
-    todo!()
+    let mut and_exprs = VecDeque::with_capacity(4);
+    let (input, expr) = strip_comments_space(
+    inline_expressions(alt((
+        group_operations,
+        parse_unary_or_binary_expr)
+    )))(input)?;
+    and_exprs.push_back(expr);
+    let mut next = input;
+    loop {
+        match strip_comments_space(
+            inline_expressions(alt((
+                group_operations,
+                parse_unary_or_binary_expr)
+            )))(next) {
+            Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(and_exprs, BinaryOperator::And))),
+            Ok((input, expr)) => {
+                and_exprs.push_back(expr);
+                next = input;
+            },
+            Err(e) => return Err(e)
+        }
+    }
+
 }
 
 
