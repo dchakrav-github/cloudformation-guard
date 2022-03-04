@@ -12,6 +12,8 @@ pub use visitor::Visitor;
 pub use exprs::*;
 pub use types::*;
 
+pub use parser::and_conjunctions;
+
 
 #[cfg(test)]
 mod tests {

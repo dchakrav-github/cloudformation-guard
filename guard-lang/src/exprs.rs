@@ -354,13 +354,19 @@ pub struct BinaryExpr {
     pub(crate) operator: BinaryOperator,
     pub(crate) lhs: Expr,
     pub(crate) rhs: Expr,
+    pub(crate) message: Option<String>,
     pub(crate) location: Location,
 }
 
 impl BinaryExpr {
     pub fn new(operator: BinaryOperator, lhs: Expr, rhs: Expr, location: Location) -> BinaryExpr {
-        BinaryExpr { lhs, rhs, operator, location }
+        Self::new_with_msg(operator, lhs, rhs, location, None)
     }
+
+    pub fn new_with_msg(operator: BinaryOperator, lhs: Expr, rhs: Expr, location: Location, message: Option<String>) -> BinaryExpr {
+        BinaryExpr { lhs, rhs, operator, location, message }
+    }
+
 
     #[inline]
     pub fn lhs(&self) -> &Expr { &self.lhs }
@@ -374,12 +380,17 @@ impl BinaryExpr {
 pub struct UnaryExpr {
     pub(crate) operator: UnaryOperator,
     pub(crate) expr: Expr,
+    pub(crate) message: Option<String>,
     pub(crate) location: Location,
 }
 
 impl UnaryExpr {
     pub fn new(operator: UnaryOperator, expr: Expr, location: Location) -> Self {
-        UnaryExpr { operator, expr, location }
+        Self::new_with_msg(operator, expr, location, None)
+    }
+
+    pub fn new_with_msg(operator: UnaryOperator, expr: Expr, location: Location, message: Option<String>) -> Self {
+        UnaryExpr { operator, expr, location, message }
     }
 
     #[inline]

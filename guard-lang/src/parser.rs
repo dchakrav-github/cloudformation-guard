@@ -515,7 +515,8 @@ fn parse_value(input: Span) -> IResult<Span, Expr> {
         parse_scalar_value,
         parse_map,
         parse_array,
-        parse_null
+        parse_null,
+        parse_range,
     )))(input)
 }
 
@@ -685,9 +686,9 @@ fn parse_binary_bool_expr(input: Span) -> IResult<Span, Expr> {
     let (input, (lhs, operator, rhs)) = tuple((
         query_or_value,
         binary_cmp_operator,
-        query_or_value
+        cut(query_or_value)
     ))(input)?;
-    Ok((input, Expr::BinaryOperation(Box::new(BinaryExpr{lhs, rhs, location, operator}))))
+    Ok((input, Expr::BinaryOperation(Box::new(BinaryExpr::new( operator, lhs, rhs, location)))))
 }
 
 fn not(input: Span) -> IResult<Span, UnaryOperator> {
@@ -752,9 +753,9 @@ fn unary_expr(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, (expr, operator)) = tuple((
         query_or_value,
-        unary_cmp_operator
+        cut(unary_cmp_operator),
     ))(input)?;
-    Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr{location, expr, operator}))))
+    Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr::new(operator, expr, location)))))
 
 }
 
@@ -767,7 +768,7 @@ fn parse_unary_bool_expr(input: Span) -> IResult<Span, Expr> {
                 parse_binary_bool_expr,
                 unary_expr,
             ))(input)?;
-            Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr{operator, expr, location}))))
+            Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr::new(operator, expr, location)))))
         },
         None => {
             unary_expr(input)
@@ -785,12 +786,12 @@ fn reduce_ands_ors(mut exprs: VecDeque<Expr>, op: BinaryOperator) -> Expr {
     }
     let lhs = exprs.pop_front().unwrap();
     let location = Location::new(lhs.get_location().row() as u32, lhs.get_location().column());
-    Expr::BinaryOperation(Box::new(BinaryExpr {
-        operator: op,
+    Expr::BinaryOperation(Box::new(BinaryExpr::new(
+        op,
         lhs,
-        rhs: reduce_ands_ors(exprs, op),
+        reduce_ands_ors(exprs, op),
         location,
-    }))
+    )))
 }
 
 fn or_operator(input: Span) -> IResult<Span, BinaryOperator> {
@@ -810,13 +811,13 @@ fn group_operations(input: Span) -> IResult<Span, Expr> {
     let (input, expr) = strip_comments_space(
         inline_expressions(alt((group_operations, parse_unary_or_binary_expr)))
     )(input)?;
-    let (input, _end_parens) = cut(strip_comments_space(char((')'))))(input)?;
+    let (input, _end_parens) = cut(strip_comments_space(char(')')))(input)?;
     Ok((input, expr))
 }
 
 fn parse_unary_or_binary_expr(input: Span) -> IResult<Span, Expr> {
     strip_comments_space(
-        alt((parse_unary_bool_expr, parse_binary_bool_expr)))(input)
+        alt((parse_binary_bool_expr, parse_unary_bool_expr)))(input)
 }
 
 fn inline_expressions<'a, P>(parser: P) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Expr>
@@ -855,11 +856,7 @@ where
     }
 }
 
-fn or_disjunctions(input: Span) -> IResult<Span, Expr> {
-    inline_expressions(parse_unary_or_binary_expr)(input)
-}
-
-fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
+pub fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
     let mut and_exprs = VecDeque::with_capacity(4);
     let (input, expr) = strip_comments_space(
     inline_expressions(alt((

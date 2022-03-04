@@ -908,7 +908,8 @@ fn test_or_disjunctions() {
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
-        let result = or_disjunctions(span);
+        let result = inline_expressions(parse_unary_or_binary_expr)(span);
+        println!("{}, {:?}", to_parse, result);
         assert_eq!(result.is_ok(), true);
         struct AssertionsVisitor{};
         impl<'expr> Visitor<'expr> for AssertionsVisitor {
@@ -970,7 +971,7 @@ fn test_or_disjunctions() {
 
     failures.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
-        let result = or_disjunctions(span);
+        let result = inline_expressions(parse_unary_or_binary_expr)(span);
         assert_eq!(result.is_err(), true);
         println!("{} {:?}", to_parse, result);
         let pe = match result.unwrap_err() {
@@ -1005,7 +1006,9 @@ fn test_and_conjunctions() {
         "###,
         r###"(Resources EXISTS && Hooks EXISTS) or
              (Hooks.CodeDeploy EXISTS)
-        "###
+        "###,
+        r###"(Resources EXISTS && Hooks EXISTS)"###,
+        "(Resources EXISTS or resourceType exists) and configuration exists",
     ];
 
     success.iter().for_each(|to_parse| {
@@ -1054,6 +1057,8 @@ fn test_and_conjunctions() {
                     value.value == "Tags" ||
                     value.value == "AWSTemplateVersion" ||
                     value.value == "CodeDeploy" ||
+                    value.value == "resourceType" ||
+                    value.value == "configuration" ||
                     value.value == "Hooks",
                     true
                 );
@@ -1074,5 +1079,20 @@ fn test_and_conjunctions() {
         let asserts = result.accept(AssertionVisitor{vec: &mut my_vec});
         assert_eq!(asserts.is_ok(), true);
         println!("{:?}", my_vec);
-    })
+    });
+
+    let failures = [
+        "",
+        "(a == true && b == true) or",
+        "Resource exist and me not exists", // exist no keyword.
+        "Resources != && me exists"
+    ];
+
+    failures.iter().for_each(|to_parse|{
+        let span = Span::new_extra(*to_parse, "");
+        let result = and_conjunctions(span);
+        println!("{} {:?}", to_parse, result);
+        assert_eq!(result.is_err(), true);
+    });
+
 }
