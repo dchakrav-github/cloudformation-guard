@@ -1,7 +1,7 @@
 use super::{Span, Location, ParseError, RangeType};
 use super::exprs::*;
 
-use nom::{Slice, InputTake};
+use nom::{Slice, InputTake, FindSubstring};
 
 use nom::multi::{
     many0,
@@ -14,21 +14,8 @@ use nom::bytes::complete::{
     is_not,
     take_while,
 };
-use nom::character::complete::{
-    char,
-	anychar,
-	multispace1,
-	digit1,
-	one_of,
-	alpha1,
-};
-use nom::combinator::{
-    map,
-	value,
-	opt,
-	cut,
-	recognize
-};
+use nom::character::complete::{char, anychar, multispace1, digit1, one_of, alpha1, newline};
+use nom::combinator::{map, value, opt, cut, recognize, peek};
 use nom::error::{
     context,
 };
@@ -673,10 +660,11 @@ fn binary_cmp_operator(input: Span) -> IResult<Span, BinaryOperator> {
     strip_comments_space(alt( (
         value(BinaryOperator::Equals, tag("==")),
         value(BinaryOperator::NotEquals, tag("!=")),
-        value(BinaryOperator::Greater, tag(">")),
+        // Order matter, we first check specific ">=" before ">" to prevent partial matches
         value(BinaryOperator::GreaterThanEquals, tag(">=")),
-        value(BinaryOperator::Lesser, tag("<")),
+        value(BinaryOperator::Greater, preceded(tag(">"), peek(nom::combinator::not(char('>'))))),
         value(BinaryOperator::LesserThanEquals, tag("<=")),
+        value(BinaryOperator::Lesser, preceded(tag("<"), peek(nom::combinator::not(char('<'))))),
         value(BinaryOperator::In, alt((tag("in"), tag("IN")))),
     )))(input)
 }
@@ -694,6 +682,39 @@ fn parse_binary_bool_expr(input: Span) -> IResult<Span, Expr> {
 fn not(input: Span) -> IResult<Span, UnaryOperator> {
     strip_comments_space(value(UnaryOperator::Not, alt((tag("not"), tag("NOT"), tag("!")))))
         (input)
+}
+
+fn here_doc(input: Span) -> IResult<Span, String> {
+    let (input, (_here_start, identity, _newline)) = tuple(
+        (tag("<<"), parse_name, newline)
+    )(input)?;
+    let (input, message) = match input.find_substring(&identity) {
+        None => return Err(nom::Err::Failure(ParseError::new(
+            Location::new(input.location_line(), input.get_column()),
+            format!("Can not find HEREDOC ending for {}", identity),
+        ))),
+        Some(v) => {
+            let split = input.take_split(v);
+            (split.0, (*split.1.fragment()).to_string())
+        }
+    };
+    let (input, _space) = cut(multispace1)(input)?;
+    Ok((input, message))
+}
+
+fn message_doc(input: Span) -> IResult<Span, String> {
+    let(input, _start_tag) = tag("<<")(input)?;
+    let (input, message) = match input.find_substring(">>") {
+        None => return Err(nom::Err::Failure(ParseError::new(
+            Location::new(input.location_line(), input.get_column()),
+            format!("Can not find ending for message doc {}", ">>"),
+        ))),
+        Some(v) => {
+            let split = input.take_split(v);
+            (split.0, (*split.1.fragment()).to_string())
+        }
+    };
+    Ok((input, message))
 }
 
 fn unary_operator<'a, P, O3>(

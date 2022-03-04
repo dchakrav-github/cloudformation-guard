@@ -892,6 +892,158 @@ fn test_parse_unary_expr() {
 }
 
 #[test]
+fn test_binary_cmp_operator() {
+    let success = [
+        "==",
+        "!=",
+        ">",
+        "<",
+        "<=",
+        ">=",
+        "> >",  // Ok
+        "< <",  // Ok
+        "in"
+    ];
+
+    let expected = [
+        BinaryOperator::Equals,
+        BinaryOperator::NotEquals,
+        BinaryOperator::Greater,
+        BinaryOperator::Lesser,
+        BinaryOperator::LesserThanEquals,
+        BinaryOperator::GreaterThanEquals,
+        BinaryOperator::Greater,
+        BinaryOperator::Lesser,
+        BinaryOperator::In
+    ];
+
+    success.iter().zip(&expected).for_each(|(to_parse, expected)| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = binary_cmp_operator(span);
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap().1, *expected);
+    });
+
+    let failures= [
+        "",
+        ">>",
+        "<<",
+        "not"
+    ];
+
+    failures.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = binary_cmp_operator(span);
+        assert_eq!(result.is_err(), true);
+    });
+}
+
+#[test]
+fn test_binary_expr() {
+    let success = [
+        "Resources.*.Properties.Tags[*].Key != /^GG/",
+        "CpuUnits >= 10",
+        "Spec.Memory <= 200",
+        "Spec.Memory IN [200, 300, 800]",
+        "Spec.Cpu >= Parameters.AllowedMinValue",
+        r#"Statements[*].Principal != '*'"#,
+        r###"
+        Statements[index].
+            Principal != '*'
+        "###,
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_binary_bool_expr(span);
+        assert_eq!(result.is_ok(), true);
+        struct BinaryExprChecker{};
+        impl<'expr> Visitor<'expr> for BinaryExprChecker {
+            type Value = ();
+            type Error = ();
+
+            fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+                for each in &value.parts {
+                    each.accept(BinaryExprChecker{})?;
+                }
+                Ok(())
+            }
+
+            fn visit_binary_operation(self, _expr: &'expr Expr, value: &'expr BinaryExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(
+                    value.operator == BinaryOperator::In ||
+                    value.operator == BinaryOperator::NotEquals ||
+                    value.operator == BinaryOperator::LesserThanEquals ||
+                    value.operator == BinaryOperator::GreaterThanEquals,
+                    true
+                );
+                value.lhs.accept(BinaryExprChecker{})?;
+                value.rhs.accept(BinaryExprChecker{})?;
+                Ok(())
+            }
+
+            fn visit_array(self, _expr: &'expr Expr, value: &'expr ArrayExpr) -> Result<Self::Value, Self::Error> {
+                for each in &value.elements {
+                    each.accept(BinaryExprChecker{});
+                }
+                Ok(())
+            }
+
+            fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(
+                    value.value == "Resources" ||
+                    value.value == "*" ||
+                    value.value == "Properties" ||
+                    value.value == "Tags" ||
+                    value.value == "Key" ||
+                    value.value == "CpuUnits" ||
+                    value.value == "Spec" ||
+                    value.value == "Memory" ||
+                    value.value == "Cpu" ||
+                    value.value == "Statements" ||
+                    value.value == "Principal" ||
+                    value.value == "Parameters" ||
+                    value.value == "AllowedMinValue" ||
+                    value.value == "Resources",
+                    true
+                );
+                Ok(())
+            }
+
+            fn visit_regex(self, _expr: &'expr Expr, value: &'expr RegexExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(value.value, "^GG");
+                Ok(())
+            }
+
+            fn visit_int(self, _expr: &'expr Expr, value: &'expr IntExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(
+                    value.value == 10 ||
+                    value.value == 300 ||
+                    value.value == 800 ||
+                    value.value == 200,
+                    true
+                );
+                Ok(())
+            }
+
+            fn visit_variable(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+                assert_eq!(value.value, "index");
+                Ok(())
+            }
+
+
+            fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+                todo!()
+            }
+        }
+        let expr = result.unwrap().1;
+        let result = expr.accept(BinaryExprChecker{});
+        assert_eq!(result.is_ok(), true);
+
+    });
+}
+
+#[test]
 fn test_or_disjunctions() {
     let success = [
         "Resources EXISTS or resourceType EXISTS",
