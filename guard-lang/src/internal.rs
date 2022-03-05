@@ -4,7 +4,6 @@
 
 use super::exprs::*;
 use std::cmp::Ordering;
-use crate::visitor::Visitor;
 use crate::Location;
 
 impl PartialEq<i64> for IntExpr {

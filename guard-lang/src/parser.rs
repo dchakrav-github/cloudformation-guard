@@ -13,9 +13,17 @@ use nom::bytes::complete::{
     take_till,
     is_not,
     take_while,
+    take,
 };
 use nom::character::complete::{char, anychar, multispace1, digit1, one_of, alpha1, newline};
-use nom::combinator::{map, value, opt, cut, recognize, peek};
+use nom::combinator::{
+    map,
+    value,
+    opt,
+    cut,
+    recognize,
+    peek
+};
 use nom::error::{
     context,
 };
@@ -676,7 +684,8 @@ fn parse_binary_bool_expr(input: Span) -> IResult<Span, Expr> {
         binary_cmp_operator,
         cut(query_or_value)
     ))(input)?;
-    Ok((input, Expr::BinaryOperation(Box::new(BinaryExpr::new( operator, lhs, rhs, location)))))
+    let (input, message_doc) = strip_comments_space(opt(alt((here_doc, message_doc))))(input)?;
+    Ok((input, Expr::BinaryOperation(Box::new(BinaryExpr::new_with_msg(operator, lhs, rhs, location, message_doc)))))
 }
 
 fn not(input: Span) -> IResult<Span, UnaryOperator> {
@@ -695,7 +704,8 @@ fn here_doc(input: Span) -> IResult<Span, String> {
         ))),
         Some(v) => {
             let split = input.take_split(v);
-            (split.0, (*split.1.fragment()).to_string())
+            let (input, _identity_part) = take(identity.len())(split.0)?;
+            (input, (*split.1.fragment()).to_string())
         }
     };
     let (input, _space) = cut(multispace1)(input)?;
@@ -776,7 +786,8 @@ fn unary_expr(input: Span) -> IResult<Span, Expr> {
         query_or_value,
         cut(unary_cmp_operator),
     ))(input)?;
-    Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr::new(operator, expr, location)))))
+    let (input, message_doc) = strip_comments_space(opt(alt((here_doc, message_doc))))(input)?;
+    Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr::new_with_msg(operator, expr, location, message_doc)))))
 
 }
 

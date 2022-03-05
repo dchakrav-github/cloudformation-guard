@@ -788,8 +788,12 @@ fn test_unary_operator() {
 #[test]
 fn test_parse_unary_expr() {
     let success = [
-        "Resources[*].Properties.Tags EXISTS",
-        "Resources.*.Properties.Tags !EXISTS",
+        "Resources[*].Properties.Tags EXISTS << Ensure Tags EXISTs >>",
+        r#"Resources.*.Properties.Tags !EXISTS <<YAML
+        message: Tags Do not exist
+        Guide: https://guides.bestpractices.aws
+        YAML
+        "#,
         "Resources[name].Properties.Tags EMPTY",
         "Resources[%buckets].Properties.Tags NOT EMPTY",
         "Resources.%buckets.Properties.Tags NOT EMPTY",
@@ -811,7 +815,7 @@ fn test_parse_unary_expr() {
         let result = parse_unary_bool_expr(span);
         assert_eq!(result.is_ok(), true);
         let unary = result.unwrap().1;
-        struct UnaryVisitor{};
+        struct UnaryVisitor{}
         impl<'expr> Visitor<'expr> for UnaryVisitor {
             type Value = ();
             type Error = String;
@@ -824,14 +828,14 @@ fn test_parse_unary_expr() {
                            value.operator == UnaryOperator::NotExists ||
                            value.operator == UnaryOperator::Empty ||
                            value.operator == UnaryOperator::NotEmpty, true);
-                struct ExpectQuery{};
+                struct ExpectQuery{}
                 impl<'expr> Visitor<'expr> for ExpectQuery {
                     type Value = ();
                     type Error = String;
 
                     fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
                         assert_eq!(value.parts.len() == 4 || value.parts.len() == 1, true);
-                        struct ExpectedPart{};
+                        struct ExpectedPart{}
                         impl<'expr> Visitor<'expr> for ExpectedPart {
                             type Value = ();
                             type Error = String;
@@ -939,6 +943,72 @@ fn test_binary_cmp_operator() {
 }
 
 #[test]
+fn test_here_doc() {
+    let success = [
+        "<<EOM\nthis is the message EOM ",
+        r#"<<EOM
+        This is a multiline message that end here EOM
+        "#,
+        r#"<<YAML
+        message: %name instance was not compliant
+        Guide: https://mycompany-guide.aws
+        YAML
+        "#
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = here_doc(span);
+        assert_eq!(result.is_ok(), true);
+    });
+
+    let failures = [
+        "",
+        "<<EOM no newline after doc part EOM ",
+        "<<START\n with no end ",
+        "<<EOM\n no space at end EOM",
+    ];
+
+    failures.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = here_doc(span);
+        assert_eq!(result.is_err(), true);
+    });
+}
+
+#[test]
+fn test_message_doc() {
+    let success = [
+        "<<this is the message>>",
+        r#"<<
+        This is a multiline message that end here EOM>>"#,
+        r#"<<
+        message: %name instance was not compliant
+        Guide: https://mycompany-guide.aws
+        >>
+        "#
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = message_doc(span);
+        assert_eq!(result.is_ok(), true);
+    });
+
+    let failures = [
+        "",
+        "<<no ending doc part",
+        "<< START with no end ",
+    ];
+
+    failures.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = message_doc(span);
+        assert_eq!(result.is_err(), true);
+    });
+}
+
+#[test]
 fn test_binary_expr() {
     let success = [
         "Resources.*.Properties.Tags[*].Key != /^GG/",
@@ -951,13 +1021,22 @@ fn test_binary_expr() {
         Statements[index].
             Principal != '*'
         "###,
+        r###"
+        IAM.Grants[*].Principal != '*' # okay we have some doc message here
+            <<GRANT_ALL_DISALLOWED
+            This is a here doc that is working this out well
+            We are going to end this here
+            GRANT_ALL_DISALLOWED
+        "###,
+        r#"Ensure < "Message" << Message still works >>"#
     ];
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
         let result = parse_binary_bool_expr(span);
+        println!("{} {:?}", to_parse, result);
         assert_eq!(result.is_ok(), true);
-        struct BinaryExprChecker{};
+        struct BinaryExprChecker{}
         impl<'expr> Visitor<'expr> for BinaryExprChecker {
             type Value = ();
             type Error = ();
@@ -973,18 +1052,22 @@ fn test_binary_expr() {
                 assert_eq!(
                     value.operator == BinaryOperator::In ||
                     value.operator == BinaryOperator::NotEquals ||
+                    value.operator == BinaryOperator::Lesser ||
                     value.operator == BinaryOperator::LesserThanEquals ||
                     value.operator == BinaryOperator::GreaterThanEquals,
                     true
                 );
                 value.lhs.accept(BinaryExprChecker{})?;
                 value.rhs.accept(BinaryExprChecker{})?;
+                if let Some(msg) = &value.message {
+                    assert_eq!(msg.contains("here doc that is working") || msg.contains("still works"), true);
+                }
                 Ok(())
             }
 
             fn visit_array(self, _expr: &'expr Expr, value: &'expr ArrayExpr) -> Result<Self::Value, Self::Error> {
                 for each in &value.elements {
-                    each.accept(BinaryExprChecker{});
+                    each.accept(BinaryExprChecker{})?;
                 }
                 Ok(())
             }
@@ -1004,6 +1087,10 @@ fn test_binary_expr() {
                     value.value == "Principal" ||
                     value.value == "Parameters" ||
                     value.value == "AllowedMinValue" ||
+                    value.value == "IAM" ||
+                    value.value == "Grants" ||
+                    value.value == "Ensure" ||
+                    value.value == "Message" ||
                     value.value == "Resources",
                     true
                 );
@@ -1032,7 +1119,7 @@ fn test_binary_expr() {
             }
 
 
-            fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+            fn visit_any(self, _expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
                 todo!()
             }
         }
@@ -1063,7 +1150,7 @@ fn test_or_disjunctions() {
         let result = inline_expressions(parse_unary_or_binary_expr)(span);
         println!("{}, {:?}", to_parse, result);
         assert_eq!(result.is_ok(), true);
-        struct AssertionsVisitor{};
+        struct AssertionsVisitor{}
         impl<'expr> Visitor<'expr> for AssertionsVisitor {
             type Value = ();
             type Error = String;
@@ -1091,8 +1178,6 @@ fn test_or_disjunctions() {
                 value.expr.accept(AssertionsVisitor{})?;
                 Ok(())
             }
-
-
 
             fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
                 assert_eq!(
@@ -1169,8 +1254,8 @@ fn test_and_conjunctions() {
         let mut my_vec: Vec<String> = Vec::new();
         assert_eq!(result.is_ok(), true);
         #[derive(Debug)]
-        struct Unhandled<'e> { expr: &'e Expr };
-        struct AssertionVisitor<'a> { vec: &'a mut Vec<String> };
+        struct Unhandled<'e> { expr: &'e Expr }
+        struct AssertionVisitor<'a> { vec: &'a mut Vec<String> }
         impl<'expr, 'a> Visitor<'expr> for AssertionVisitor<'a> {
             type Value = ();
             type Error = Unhandled<'expr>;
