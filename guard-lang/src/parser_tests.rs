@@ -801,12 +801,12 @@ fn test_parse_unary_expr() {
             %buckets.
             Properties.
             Tags NOT EMPTY"#,
-        r###"Resources.
+        r###"Resources
             # extract the list of buckets we used
-            %buckets.
-            Properties.
+            .%buckets
+            .Properties
             # checking if Tags EXISTS and is not EMPTY
-            Tags !EMPTY"###,
+            .Tags !EMPTY"###,
         r#"not Resources EXISTS"#
     ];
 
@@ -1131,6 +1131,123 @@ fn test_binary_expr() {
 }
 
 #[test]
+fn test_let_expr() {
+    let success = [
+        "let literal = [10, 20]",
+        r#"let map = { hi: "there", bye: 20 }"#,
+        r#"let query = Parameters.AWS.allowedPrefixLists"#,
+        r#"let query = Parameters.AWS.allowedPrefixLists || []"#,
+    ];
+
+    struct LetExprAssertions{}
+    impl<'expr> Visitor<'expr> for LetExprAssertions {
+        type Value = ();
+        type Error = ();
+
+        fn visit_let(self, _expr: &'expr Expr, value: &'expr LetExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.name == "literal"                ||
+                value.name == "map"                    ||
+                value.name == "query",
+                true
+            );
+            value.value.accept(LetExprAssertions{})?;
+            Ok(())
+        }
+
+
+        fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.parts {
+                each.accept(LetExprAssertions{})?;
+            }
+
+            Ok(())
+        }
+
+        fn visit_binary_operation(self, _expr: &'expr Expr, value: &'expr BinaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(value.operator, BinaryOperator::Or);
+            value.lhs.accept(LetExprAssertions{})?;
+            value.rhs.accept(LetExprAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_array(self, _expr: &'expr Expr, value: &'expr ArrayExpr) -> Result<Self::Value, Self::Error> {
+            // Empty for the Or assignment case
+            assert_eq!(
+                value.elements.is_empty() ||
+                value.elements.len() == 2,
+                true
+            );
+
+            if !value.elements.is_empty() {
+                for each in &value.elements {
+                    each.accept(LetExprAssertions {})?;
+                }
+            }
+            Ok(())
+        }
+
+        fn visit_map(self, _expr: &'expr Expr, value: &'expr MapExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(value.entries.len(), 2);
+            for each in value.entries.keys() {
+                assert_eq!(
+                    each.value == "hi" ||
+                    each.value == "bye",
+                    true
+                );
+            }
+            Ok(())
+        }
+
+        fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "Parameters"             ||
+                value.value == "AWS"                    ||
+                value.value == "allowedPrefixLists",
+                true
+            );
+            Ok(())
+        }
+
+        fn visit_int(self, _expr: &'expr Expr, value: &'expr IntExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == 10 ||
+                value.value == 20,
+                true
+            );
+            Ok(())
+        }
+
+        fn visit_any(self, _expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+            todo!()
+        }
+    }
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_let_expr(span);
+        println!("{}, {:?}", to_parse, result);
+        assert_eq!(result.is_ok(), true);
+        let result = result.unwrap().1;
+        let r = result.accept(LetExprAssertions{});
+        assert_eq!(r.is_ok(), true);
+    });
+
+    let failures = [
+        "",
+        "s = 10",
+        "let s 10"
+    ];
+
+    failures.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_let_expr(span);
+        assert_eq!(result.is_err(), true, "{}, {:?}", to_parse, result);
+    });
+
+}
+
+#[test]
 fn test_or_disjunctions() {
     let success = [
         "Resources EXISTS or resourceType EXISTS",
@@ -1332,4 +1449,156 @@ fn test_and_conjunctions() {
         assert_eq!(result.is_err(), true);
     });
 
+}
+
+#[test]
+fn test_parse_block_expr() {
+    let success = [
+        r###"
+        let literal = "literal string here"
+        let important = ["imp1", "imp2"]
+
+        Resources.*.Properties.Tags[*].Key == %literal
+        Resources.%important.Properties.Tags[*].Value == /^Value/
+        "###,
+
+        r###"
+        let literal = "literal string here"
+        let important = ["imp1", "imp2"]
+
+        Resources.*.Properties.Tags[*].Key == %literal
+        Resources.%important.Properties.Tags[*].Value == /^Value/
+        (Resources.%important.Properties EXISTS &&
+         Resources.%important.Properties.Tags NOT EMPTY) OR
+        Resources.*.Properties EXISTS
+        "###,
+
+        r###"
+        let literal = "literal string here"
+        let important = ["imp1", "imp2"]
+
+        Resources.*.Properties.Tags[*].Key == %literal
+        Resources.%important.Properties.Tags[*].Value == /^Value/ or
+        Resources.%important.Properties.Tags[*].Value == /^Other/
+        "###,
+    ];
+
+    struct ParseBlockAssertions{}
+    impl<'expr> Visitor<'expr> for ParseBlockAssertions {
+        type Value = ();
+        type Error = ();
+
+        fn visit_let(self, _expr: &'expr Expr, value: &'expr LetExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.name == "literal" ||
+                value.name == "important",
+                true,
+                "{} not literal or important",
+                value.name
+            );
+            value.value.accept(ParseBlockAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(value.parts.is_empty(), false);
+            for each in &value.parts {
+                each.accept(ParseBlockAssertions{})?;
+            }
+            Ok(())
+        }
+
+        fn visit_binary_operation(self, _expr: &'expr Expr, value: &'expr BinaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.operator == BinaryOperator::Or        ||
+                value.operator == BinaryOperator::And       ||
+                value.operator == BinaryOperator::Equals,
+                true,
+                "{:?} not Or, And or Equals",
+                value.operator
+            );
+            value.lhs.accept(ParseBlockAssertions{})?;
+            value.rhs.accept(ParseBlockAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_unary_operation(self, _expr: &'expr Expr, value: &'expr UnaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.operator == UnaryOperator::Exists ||
+                value.operator == UnaryOperator::NotEmpty,
+                true,
+                "{:?} not Exist or NotEmpty",
+                value.operator
+            );
+            value.expr.accept(ParseBlockAssertions{})?;
+            Ok(())
+        }
+
+
+        fn visit_array(self, _expr: &'expr Expr, value: &'expr ArrayExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.elements {
+                each.accept(ParseBlockAssertions{})?;
+            }
+            Ok(())
+        }
+
+
+        fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "literal string here"    ||
+                value.value == "imp1"                   ||
+                value.value == "imp2"                   ||
+                value.value == "Resources"              ||
+                value.value == "*"                      ||
+                value.value == "Properties"             ||
+                value.value == "Tags"                   ||
+                value.value == "Value"                  ||
+                value.value == "Key",
+                true,
+                "{} not expected",
+                value.value
+            );
+            Ok(())
+        }
+
+        fn visit_regex(self, _expr: &'expr Expr, value: &'expr RegexExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "^Value"  ||
+                value.value == "^Other",
+                true
+            );
+            Ok(())
+        }
+
+        fn visit_variable_reference(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "important" ||
+                value.value == "literal",
+                true
+            );
+            Ok(())
+        }
+
+        fn visit_filter(self, _expr: &'expr Expr, value: &'expr BlockExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.assignments {
+                each.accept(ParseBlockAssertions{})?;
+            }
+            value.clause.accept(ParseBlockAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_any(self, _expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+            todo!()
+        }
+    }
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_block_inner_expr(span);
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
+        let expr = result.unwrap().1;
+        let filter = Expr::Filter(Box::new(expr));
+        let result = filter.accept(ParseBlockAssertions{});
+        assert_eq!(result.is_ok(), true);
+    });
 }

@@ -30,12 +30,7 @@ use nom::error::{
 use nom::number::complete::{
     double,
 };
-use nom::sequence::{
-    delimited,
-	preceded,
-	separated_pair,
-	tuple,
-};
+use nom::sequence::{delimited, preceded, separated_pair, tuple, terminated};
 use crate::Expr;
 use std::collections::VecDeque;
 
@@ -52,6 +47,9 @@ impl<'a> nom::error::ParseError<Span<'a>> for ParseError {
     fn append(_input: Span<'a>, _kind: nom::error::ErrorKind, other: Self) -> Self {
         other
     }
+}
+
+impl<'a> nom::error::ContextError<Span<'a>> for ParseError {
 
     fn add_context(_input: Span<'a>, ctx: &'static str, other: Self) -> Self {
         let message = format!("{} {}", other.get_message(), ctx);
@@ -93,8 +91,8 @@ fn zero_or_more_ws_or_comment(input: Span) -> IResult<Span, ()> {
 //
 // Parser for the grammar
 //
-fn strip_comments_space<'a, F, O>(parser: F) -> impl Fn(Span<'a>) -> IResult<Span<'a>, O>
-    where F: Fn(Span<'a>) -> IResult<Span<'a>, O>
+fn strip_comments_space<'a, F, O>(mut parser: F) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, O>
+    where F: FnMut(Span<'a>) -> IResult<Span<'a>, O>
 {
     move |input: Span| {
         let (input, _comments) = zero_or_more_ws_or_comment(input)?;
@@ -263,14 +261,15 @@ fn parse_char(input: Span) -> IResult<Span, Expr> {
     Ok((input, Expr::Char(Box::new(CharExpr::new(ch, location)))))
 }
 
-fn range_value<'a, P, O>(parse: P) -> impl Fn(Span<'a>) -> IResult<Span<'a>, (O, O)>
-    where P: Fn(Span<'a>) -> IResult<Span<'a>, O>
+fn range_value<'a, P, O>(mut parse: P) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, (O, O)>
+    where P: FnMut(Span<'a>) -> IResult<Span<'a>, O>
 {
     move |input: Span| {
-        let parser = |i| parse(i);
-        strip_comments_space(
-            separated_pair(parser, strip_comments_space(char(',')), parser),
-        )(input)
+        let (input, _) = zero_or_more_ws_or_comment(input)?;
+        let (input, lower) = parse(input)?;
+        let (input, _) = strip_comments_space(char(','))(input)?;
+        let (input, higher) = parse(input)?;
+        Ok((input, (lower, higher)))
     }
 }
 
@@ -577,9 +576,9 @@ fn parse_var_block(input: Span) -> IResult<Span, (Expr, Option<Expr>)> {
     }
 }
 
-fn parse_query_filter_segment<'a, F>(filter: F) -> impl Fn(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
+fn parse_query_filter_segment<'a, F>(mut filter: F) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
 where
-    F: Fn(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
+    F: FnMut(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
 {
     move |input: Span| {
         let (input, _start_braces) = parse_start_braces(input)?;
@@ -594,8 +593,8 @@ where
 
 fn query_segment<'a, P, F>(parser: P, filter: F, input: Span<'a>, segements: &mut Vec<Expr>) -> IResult<Span<'a>, ()>
 where
-    P: Fn(Span<'a>) -> IResult<Span<'a>, Expr>,
-    F: Fn(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>,
+    P: FnMut(Span<'a>) -> IResult<Span<'a>, Expr>,
+    F: FnMut(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>,
 {
     let (input, start) = strip_comments_space(parser)(input)?;
     let (input, filter) = opt(parse_query_filter_segment(filter))(input)?;
@@ -609,9 +608,9 @@ where
     Ok((input, ()))
 }
 
-fn parse_query<'a, F>(filter: F, input: Span<'a>) -> IResult<Span<'a>, Expr>
+fn parse_query<'a, F>(mut filter: F, input: Span<'a>) -> IResult<Span<'a>, Expr>
 where
-    F: Fn(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
+    F: FnMut(Span<'a>) -> IResult<Span<'a>, (Expr, Option<Expr>)>
 {
     let location = Location::new(input.location_line(), input.get_column());
     let mut segments = Vec::with_capacity(4);
@@ -653,6 +652,28 @@ fn parse_assignment_query(input: Span) -> IResult<Span, Expr> {
         map(parse_block_inner_expr, |e| (Expr::Filter(Box::new(e)), None)),
         input
     )
+}
+
+fn parse_let_expr(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, (_let, variable)) = strip_comments_space(tuple((
+        terminated(tag("let"), multispace1),
+        strip_comments_space(parse_name)
+    )))(input)?;
+    let (input, _assign_sign) = cut(strip_comments_space(char('=')))(input)?;
+    let (input, assignment) = query_or_value(input)?;
+    let (input, or_assignment) =
+        opt(preceded(
+            strip_comments_space(or_operator), query_or_value))(input)?;
+    match or_assignment {
+        Some(value) => {
+            Ok((input, Expr::Let(Box::new(LetExpr::new(variable, Expr::BinaryOperation(Box::new(
+                BinaryExpr::new(BinaryOperator::Or, assignment, value, location.clone()))), location)))))
+        },
+        None =>{
+            Ok((input, Expr::Let(Box::new(LetExpr::new(variable, assignment, location)))))
+        }
+    }
 }
 
 fn query_or_value(input: Span) -> IResult<Span, Expr> {
@@ -728,9 +749,9 @@ fn message_doc(input: Span) -> IResult<Span, String> {
 }
 
 fn unary_operator<'a, P, O3>(
-    parser: P, op: UnaryOperator, not_op: UnaryOperator) -> impl Fn(Span<'a>) -> IResult<Span<'a>, UnaryOperator>
+    mut parser: P, op: UnaryOperator, not_op: UnaryOperator) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, UnaryOperator>
 where
-    P: Fn(Span<'a>) -> IResult<Span<'a>, O3>
+    P: FnMut(Span<'a>) -> IResult<Span<'a>, O3>
 {
     move |input: Span| {
         let (input, not) = opt(not)(input)?;
@@ -809,7 +830,35 @@ fn parse_unary_bool_expr(input: Span) -> IResult<Span, Expr> {
 }
 
 fn parse_block_inner_expr(input: Span) -> IResult<Span, BlockExpr> {
-    todo!()
+    let location = Location::new(input.location_line(), input.get_column());
+    let mut assignments = Vec::with_capacity(5);
+    let mut ands_exprs = VecDeque::with_capacity(5);
+    let (input, _) = alt((
+        map(parse_let_expr, |e| {
+            assignments.push(e)
+        }),
+        map(and_expressions, |e| ands_exprs.extend(e)),
+    ))(input)?;
+    let mut next = input;
+    loop {
+        let result = alt((
+            map(parse_let_expr, |e| { assignments.push(e); }),
+            map(and_expressions, |e| { ands_exprs.extend(e); }),
+        ))(next);
+
+        match result {
+            Err(nom::Err::Error(_)) => return Ok((next, BlockExpr {
+                assignments, location, clause: reduce_ands_ors(ands_exprs, BinaryOperator::And)
+            })),
+
+            Ok((input, _)) => {
+                next = input;
+            }
+
+            Err(e) => return Err(e)
+        }
+
+    }
 }
 
 fn reduce_ands_ors(mut exprs: VecDeque<Expr>, op: BinaryOperator) -> Expr {
@@ -852,9 +901,9 @@ fn parse_unary_or_binary_expr(input: Span) -> IResult<Span, Expr> {
         alt((parse_binary_bool_expr, parse_unary_bool_expr)))(input)
 }
 
-fn inline_expressions<'a, P>(parser: P) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Expr>
+fn inline_expressions<'a, P>(mut parser: P) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
 where
-    P: Fn(Span<'a>) -> IResult<Span<'a>, Expr>
+    P: FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
 {
     move |input: Span| {
         let (input, lhs) = parser(input)?;
@@ -888,13 +937,13 @@ where
     }
 }
 
-pub fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
+fn and_expressions(input: Span) -> IResult<Span, VecDeque<Expr>> {
     let mut and_exprs = VecDeque::with_capacity(4);
     let (input, expr) = strip_comments_space(
-    inline_expressions(alt((
-        group_operations,
-        parse_unary_or_binary_expr)
-    )))(input)?;
+        inline_expressions(alt((
+            group_operations,
+            parse_unary_or_binary_expr)
+        )))(input)?;
     and_exprs.push_back(expr);
     let mut next = input;
     loop {
@@ -903,7 +952,7 @@ pub fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
                 group_operations,
                 parse_unary_or_binary_expr)
             )))(next) {
-            Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(and_exprs, BinaryOperator::And))),
+            Err(nom::Err::Error(_)) => return Ok((next, and_exprs)),
             Ok((input, expr)) => {
                 and_exprs.push_back(expr);
                 next = input;
@@ -912,6 +961,11 @@ pub fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
         }
     }
 
+}
+
+pub fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
+    and_expressions(input).map(|(span, exprs)|
+        (span, reduce_ands_ors(exprs, BinaryOperator::And)))
 }
 
 

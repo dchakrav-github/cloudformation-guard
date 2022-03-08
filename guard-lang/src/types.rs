@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
 
 /// Present the Location of a given expression inside a Guard file
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Default, Clone)]
 pub struct Location {
     row: usize,
     column: usize

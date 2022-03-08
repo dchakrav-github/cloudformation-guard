@@ -269,18 +269,18 @@ impl ArrayExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockExpr {
-    pub(crate) assignments: Vec<LetExpr>,
+    pub(crate) assignments: Vec<Expr>,
     pub(crate) clause: Expr,
     pub(crate) location: Location,
 }
 
 impl BlockExpr {
-    pub fn new(assignments: Vec<LetExpr>, clause: Expr, location: Location) -> BlockExpr {
+    pub fn new(assignments: Vec<Expr>, clause: Expr, location: Location) -> BlockExpr {
         BlockExpr { assignments, clause,  location }
     }
 
     #[inline]
-    pub fn assignments(&self) -> &[LetExpr] { &self.assignments }
+    pub fn assignments(&self) -> &[Expr] { &self.assignments }
     #[inline]
     pub fn location(&self) -> &Location { &self.location }
     #[inline]
