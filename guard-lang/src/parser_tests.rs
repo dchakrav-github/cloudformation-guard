@@ -43,7 +43,6 @@ fn test_parse_bool() {
         "true",
         "True",
         "TRUE",
-        "T",
     ];
 
     success_true.iter().map(|s| Span::new_extra(*s, ""))
@@ -58,7 +57,6 @@ fn test_parse_bool() {
         "false",
         "False",
         "FALSE",
-        "F",
     ];
 
     false_pass.iter().map(|s| Span::new_extra(*s, ""))
@@ -1601,4 +1599,30 @@ fn test_parse_block_expr() {
         let result = filter.accept(ParseBlockAssertions{});
         assert_eq!(result.is_ok(), true);
     });
+}
+
+#[test]
+fn test_with_block_queries() {
+    let success = [
+//        r####"
+//        Resources.* {
+//            Properties EXISTS or
+//            Metadata EXISTS
+//        }
+//        "####,
+        // Filters
+        r#"
+        Resources[ name | Type == 'AWS::S3::Bucket' && Properties { Tags EXISTS and Metadata EXISTS } ].Properties {
+            Tags[*].Key == /^Value/
+            Metadata.'aws:cdk' EXISTS
+        }
+        "#,
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_query_block_expr(span);
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
+    });
+
 }

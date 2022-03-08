@@ -217,8 +217,8 @@ fn parse_regex(input: Span) -> IResult<Span, Expr> {
 
 fn parse_bool(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
-    let true_parser = value(true, alt((tag("true"), tag("True"), tag("TRUE"), tag("T"))));
-    let false_parser = value(false, alt((tag("false"), tag("False"), tag("FALSE"), tag("F"))));
+    let true_parser = value(true, alt((tag("true"), tag("True"), tag("TRUE"),)));
+    let false_parser = value(false, alt((tag("false"), tag("False"), tag("FALSE"),)));
     let (input, res) = alt((true_parser, false_parser))(input)?;
     Ok((input, Expr::Bool(Box::new(BoolExpr::new(res, location)))))
 }
@@ -942,6 +942,7 @@ fn and_expressions(input: Span) -> IResult<Span, VecDeque<Expr>> {
     let (input, expr) = strip_comments_space(
         inline_expressions(alt((
             group_operations,
+            parse_query_block_expr,
             parse_unary_or_binary_expr)
         )))(input)?;
     and_exprs.push_back(expr);
@@ -950,6 +951,7 @@ fn and_expressions(input: Span) -> IResult<Span, VecDeque<Expr>> {
         match strip_comments_space(
             inline_expressions(alt((
                 group_operations,
+                parse_query_block_expr,
                 parse_unary_or_binary_expr)
             )))(next) {
             Err(nom::Err::Error(_)) => return Ok((next, and_exprs)),
@@ -966,6 +968,16 @@ fn and_expressions(input: Span) -> IResult<Span, VecDeque<Expr>> {
 pub fn and_conjunctions(input: Span) -> IResult<Span, Expr> {
     and_expressions(input).map(|(span, exprs)|
         (span, reduce_ands_ors(exprs, BinaryOperator::And)))
+}
+
+fn parse_query_block_expr(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, query) = parse_select(input)?;
+    let query = match query { Expr::Select(q) => *q, _ => unreachable!() };
+    let (input, _open) = parse_start_bracket(input)?;
+    let (input, block) = cut(parse_block_inner_expr)(input)?;
+    let (input, _end) = cut(parse_end_bracket)(input)?;
+    Ok((input, Expr::Block(Box::new(BlockClauseExpr::new(query, block, location)))))
 }
 
 
