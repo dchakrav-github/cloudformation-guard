@@ -3,9 +3,7 @@ use super::exprs::*;
 
 use nom::{Slice, InputTake, FindSubstring};
 
-use nom::multi::{
-    many0,
-};
+use nom::multi::{many0, many1};
 
 use nom::branch::alt;
 use nom::bytes::complete::{
@@ -87,6 +85,10 @@ fn zero_or_more_ws_or_comment(input: Span) -> IResult<Span, ()> {
     value((), many0(white_space_or_comment))(input)
 }
 
+fn one_or_more_ws_or_comment(input: Span) -> IResult<Span, ()> {
+    value((), many1(white_space_or_comment))(input)
+}
+
 
 //
 // Parser for the grammar
@@ -98,6 +100,28 @@ fn strip_comments_space<'a, F, O>(mut parser: F) -> impl FnMut(Span<'a>) -> IRes
         let (input, _comments) = zero_or_more_ws_or_comment(input)?;
         let (input, result) = parser(input)?;
         let (input, _comments) = zero_or_more_ws_or_comment(input)?;
+        Ok((input, result))
+    }
+}
+
+fn strip_comments_trailing_space<'a, F, O>(mut parser: F) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, O>
+    where F: FnMut(Span<'a>) -> IResult<Span<'a>, O>
+{
+    move |input: Span| {
+        let (input, _comments) = zero_or_more_ws_or_comment(input)?;
+        let (input, result) = parser(input)?;
+        let (input, _comments) = one_or_more_ws_or_comment(input)?;
+        Ok((input, result))
+    }
+}
+
+fn strip_comments_space1<'a, F, O>(mut parser: F) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, O>
+    where F: FnMut(Span<'a>) -> IResult<Span<'a>, O>
+{
+    move |input: Span| {
+        let (input, _comments) = one_or_more_ws_or_comment(input)?;
+        let (input, result) = parser(input)?;
+        let (input, _comments) = one_or_more_ws_or_comment(input)?;
         Ok((input, result))
     }
 }
@@ -710,8 +734,12 @@ fn parse_binary_bool_expr(input: Span) -> IResult<Span, Expr> {
 }
 
 fn not(input: Span) -> IResult<Span, UnaryOperator> {
-    strip_comments_space(value(UnaryOperator::Not, alt((tag("not"), tag("NOT"), tag("!")))))
-        (input)
+    value(UnaryOperator::Not,
+          alt((
+              strip_comments_trailing_space(alt((tag("not"), tag("NOT")))),
+               strip_comments_space(tag("!")))
+          )
+    )(input)
 }
 
 fn here_doc(input: Span) -> IResult<Span, String> {
@@ -808,25 +836,20 @@ fn unary_expr(input: Span) -> IResult<Span, Expr> {
         cut(unary_cmp_operator),
     ))(input)?;
     let (input, message_doc) = strip_comments_space(opt(alt((here_doc, message_doc))))(input)?;
-    Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr::new_with_msg(operator, expr, location, message_doc)))))
+    Ok((
+        input,
+        Expr::UnaryOperation(Box::new(UnaryExpr::new_with_msg(operator, expr, location, message_doc)))))
+}
 
+fn anyone(input: Span) -> IResult<Span, UnaryOperator> {
+    alt((
+        value(UnaryOperator::AnyOne, strip_comments_trailing_space(alt((tag("anyone"), tag("some"), tag("atleast-one"))))),
+        value(UnaryOperator::Any, strip_comments_trailing_space(tag("any")))
+    ))(input)
 }
 
 fn parse_unary_bool_expr(input: Span) -> IResult<Span, Expr> {
-    let location = Location::new(input.location_line(), input.get_column());
-    let (input, is_not) = opt(not)(input)?;
-    match is_not {
-        Some(operator) =>{
-            let (input, expr) = alt((
-                parse_binary_bool_expr,
-                unary_expr,
-            ))(input)?;
-            Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr::new(operator, expr, location)))))
-        },
-        None => {
-            unary_expr(input)
-        }
-    }
+    unary_expr(input)
 }
 
 fn parse_block_inner_expr(input: Span) -> IResult<Span, BlockExpr> {
@@ -890,15 +913,40 @@ fn and_operator(input: Span) -> IResult<Span, BinaryOperator> {
 fn group_operations(input: Span) -> IResult<Span, Expr> {
     let (input, _parens) = strip_comments_space(char('('))(input)?;
     let (input, expr) = strip_comments_space(
-        inline_expressions(alt((group_operations, parse_unary_or_binary_expr)))
-    )(input)?;
+        inline_expressions(not_any))(input)?;
     let (input, _end_parens) = cut(strip_comments_space(char(')')))(input)?;
     Ok((input, expr))
 }
 
-fn parse_unary_or_binary_expr(input: Span) -> IResult<Span, Expr> {
-    strip_comments_space(
-        alt((parse_binary_bool_expr, parse_unary_bool_expr)))(input)
+fn parse_unary_binary_or_block_expr(input: Span) -> IResult<Span, Expr> {
+    strip_comments_space( alt((
+        parse_query_block_expr,
+        parse_binary_bool_expr,
+        parse_unary_bool_expr)
+    ))(input)
+}
+
+fn not_any(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, not) = opt(not)(input)?;
+    let (input, any) = opt(anyone)(input)?;
+    let (input, expr) = alt((
+        group_operations,
+        parse_unary_binary_or_block_expr
+    ))(input)?;
+    let expr = match any {
+        Some(op) => {
+            Expr::UnaryOperation(Box::new(UnaryExpr::new(op, expr, location.clone())))
+        },
+        None => expr,
+    };
+    let expr = match not {
+        Some(op) => {
+            Expr::UnaryOperation(Box::new(UnaryExpr::new(op, expr, location.clone())))
+        },
+        None => expr,
+    };
+    Ok((input, expr))
 }
 
 fn inline_expressions<'a, P>(mut parser: P) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
@@ -940,20 +988,12 @@ where
 fn and_expressions(input: Span) -> IResult<Span, VecDeque<Expr>> {
     let mut and_exprs = VecDeque::with_capacity(4);
     let (input, expr) = strip_comments_space(
-        inline_expressions(alt((
-            group_operations,
-            parse_query_block_expr,
-            parse_unary_or_binary_expr)
-        )))(input)?;
+        inline_expressions(not_any))(input)?;
     and_exprs.push_back(expr);
     let mut next = input;
     loop {
         match strip_comments_space(
-            inline_expressions(alt((
-                group_operations,
-                parse_query_block_expr,
-                parse_unary_or_binary_expr)
-            )))(next) {
+            inline_expressions(not_any))(next) {
             Err(nom::Err::Error(_)) => return Ok((next, and_exprs)),
             Ok((input, expr)) => {
                 and_exprs.push_back(expr);

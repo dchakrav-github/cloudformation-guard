@@ -198,6 +198,8 @@ pub enum UnaryOperator {
     IsNotBool,
     IsNotRegex,
     Not,
+    Any,
+    AnyOne
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -805,13 +805,12 @@ fn test_parse_unary_expr() {
             .Properties
             # checking if Tags EXISTS and is not EMPTY
             .Tags !EMPTY"###,
-        r#"not Resources EXISTS"#
     ];
 
     for (_idx, expr) in success.iter().enumerate() {
         let span = Span::new_extra(expr, "");
         let result = parse_unary_bool_expr(span);
-        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.is_ok(), true, "{} {:?}", expr, result);
         let unary = result.unwrap().1;
         struct UnaryVisitor{}
         impl<'expr> Visitor<'expr> for UnaryVisitor {
@@ -1262,7 +1261,7 @@ fn test_or_disjunctions() {
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
-        let result = inline_expressions(parse_unary_or_binary_expr)(span);
+        let result = inline_expressions(parse_unary_binary_or_block_expr)(span);
         println!("{}, {:?}", to_parse, result);
         assert_eq!(result.is_ok(), true);
         struct AssertionsVisitor{}
@@ -1323,7 +1322,7 @@ fn test_or_disjunctions() {
 
     failures.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
-        let result = inline_expressions(parse_unary_or_binary_expr)(span);
+        let result = inline_expressions(parse_unary_binary_or_block_expr)(span);
         assert_eq!(result.is_err(), true);
         println!("{} {:?}", to_parse, result);
         let pe = match result.unwrap_err() {
@@ -1367,7 +1366,7 @@ fn test_and_conjunctions() {
         let span = Span::new_extra(*to_parse, "");
         let result = and_conjunctions(span);
         let mut my_vec: Vec<String> = Vec::new();
-        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
         #[derive(Debug)]
         struct Unhandled<'e> { expr: &'e Expr }
         struct AssertionVisitor<'a> { vec: &'a mut Vec<String> }
@@ -1568,20 +1567,20 @@ fn test_parse_block_expr() {
             Ok(())
         }
 
+        fn visit_filter(self, _expr: &'expr Expr, value: &'expr BlockExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.assignments {
+                each.accept(ParseBlockAssertions{})?;
+            }
+            value.clause.accept(ParseBlockAssertions{})?;
+            Ok(())
+        }
+
         fn visit_variable_reference(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
             assert_eq!(
                 value.value == "important" ||
                 value.value == "literal",
                 true
             );
-            Ok(())
-        }
-
-        fn visit_filter(self, _expr: &'expr Expr, value: &'expr BlockExpr) -> Result<Self::Value, Self::Error> {
-            for each in &value.assignments {
-                each.accept(ParseBlockAssertions{})?;
-            }
-            value.clause.accept(ParseBlockAssertions{})?;
             Ok(())
         }
 
@@ -1604,12 +1603,12 @@ fn test_parse_block_expr() {
 #[test]
 fn test_with_block_queries() {
     let success = [
-//        r####"
-//        Resources.* {
-//            Properties EXISTS or
-//            Metadata EXISTS
-//        }
-//        "####,
+        r####"
+        Resources.* {
+            Properties EXISTS or
+            Metadata EXISTS
+        }
+        "####,
         // Filters
         r#"
         Resources[ name | Type == 'AWS::S3::Bucket' && Properties { Tags EXISTS and Metadata EXISTS } ].Properties {
@@ -1617,12 +1616,116 @@ fn test_with_block_queries() {
             Metadata.'aws:cdk' EXISTS
         }
         "#,
+        "Resources[*] { Properties EXISTS }"
     ];
+
+    struct BlockQueryAssertions{}
+    impl<'expr> Visitor<'expr> for BlockQueryAssertions {
+        type Value = ();
+        type Error = ();
+
+        fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.parts {
+                each.accept(BlockQueryAssertions{})?;
+            }
+            Ok(())
+        }
+
+        fn visit_binary_operation(self, _expr: &'expr Expr, value: &'expr BinaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.operator == BinaryOperator::Equals    ||
+                value.operator == BinaryOperator::And       ||
+                value.operator == BinaryOperator::Or,
+                true
+            );
+            value.lhs.accept(BlockQueryAssertions{})?;
+            value.rhs.accept(BlockQueryAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_unary_operation(self, _expr: &'expr Expr, value: &'expr UnaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(value.operator, UnaryOperator::Exists);
+            value.expr.accept(BlockQueryAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "Resources"          ||
+                value.value == "AWS::S3::Bucket"    ||
+                value.value == "Properties"         ||
+                value.value == "Metadata"           ||
+                value.value == "Type"               ||
+                value.value == "Tags"               ||
+                value.value == "*"                  ||
+                value.value == "Key"                ||
+                value.value == "aws:cdk",
+                true,
+                "Unexpected {}",
+                value.value
+            );
+            Ok(())
+        }
+
+        fn visit_regex(self, _expr: &'expr Expr, value: &'expr RegexExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "^Value",
+                true
+            );
+            Ok(())
+        }
+
+        fn visit_filter(self, _expr: &'expr Expr, value: &'expr BlockExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(value.assignments.is_empty(), true, "{:?}", value.assignments);
+            value.clause.accept(BlockQueryAssertions{})?;
+            Ok(())
+        }
+
+
+        fn visit_variable(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "name",
+                true
+            );
+            Ok(())
+        }
+
+        fn visit_block(self, _expr: &'expr Expr, value: &'expr BlockClauseExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.select.parts {
+                each.accept(BlockQueryAssertions{})?;
+            }
+            assert_eq!(value.block.assignments.is_empty(), true, "{:?}", value.block.assignments);
+            value.block.clause.accept(BlockQueryAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+            todo!()
+        }
+    }
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
         let result = parse_query_block_expr(span);
         assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
+        let expr = result.unwrap().1;
+        let visitation = expr.accept(BlockQueryAssertions{});
+        assert_eq!(visitation.is_ok(), true, "{:?}", visitation);
+    });
+
+    let failures = [
+        "",
+        "Resources.* { Properties", // no operations present
+        "Resources.* { Properties { Tags NOT EMPTY }", // no closing '}'
+        "Resources[*] { Properties }", // no operation on Properties
+        "Resources[*] { Properties { Tags NOT EXISTS && Tags[*] { Key == /^Key/ }"
+    ];
+
+    failures.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_query_block_expr(span);
+        println!("{:?}", result);
+        assert_eq!(result.is_err(), true);
     });
 
 }
