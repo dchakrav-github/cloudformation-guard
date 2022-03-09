@@ -7,6 +7,11 @@ use serde::{Serialize, Deserialize};
 /// AST Expressions for Guard Language
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Expr {
+    /// File that contains a list of rules that needs to be evaluated
+    ///
+    File(Box<FileExpr>),
+
+
     /// Rule expression in the language. Rules can be parameterized
     /// to create reusable rules. Rules are defined using the general form
     ///
@@ -203,27 +208,53 @@ pub enum UnaryOperator {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileExpr {
+    pub(crate) name: String,
+    pub(crate) assignments: Vec<LetExpr>,
+    pub(crate) rules: Vec<RuleExpr>,
+    pub(crate) location: Location,
+}
+
+impl FileExpr {
+    pub fn new(name: String, assignments: Vec<LetExpr>, rules: Vec<RuleExpr>) -> Self {
+        FileExpr { name, assignments, rules, location: Location::new(1, 1) }
+    }
+
+    #[inline]
+    pub fn name(&self) -> &str { &self.name }
+    #[inline]
+    pub fn assignments(&self) -> &[LetExpr] { &self.assignments }
+    #[inline]
+    pub fn rules(&self) -> &[RuleExpr] { &self.rules }
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuleExpr {
     pub(crate) name: String,
-    pub(crate) when: Expr,
+    pub(crate) when: Option<Expr>,
     pub(crate) parameters: Option<Vec<Expr>>,
     pub(crate) block: BlockExpr,
     pub(crate) location: Location,
 }
 
 impl RuleExpr {
-    pub fn new(name: String, when: Expr, block: BlockExpr, location: Location) -> RuleExpr {
-        Self::new_with_parameters(name, when, None, block, location)
+
+    pub fn new(name: String, block: BlockExpr, location: Location) -> RuleExpr {
+        Self::new_with_when(name, None, block, location)
     }
 
-    pub fn new_with_parameters(name: String, when: Expr, parameters: Option<Vec<Expr>>, block: BlockExpr, location: Location) -> RuleExpr {
+    pub fn new_with_when(name: String, when: Option<Expr>, block: BlockExpr, location: Location) -> RuleExpr {
+        Self::new_with_when_parameters(name, when, None, block, location)
+    }
+
+    pub fn new_with_when_parameters(name: String, when: Option<Expr>, parameters: Option<Vec<Expr>>, block: BlockExpr, location: Location) -> RuleExpr {
         RuleExpr { name, when, parameters, block, location }
     }
 
     #[inline]
     pub fn name(&self) -> &str { &self.name }
     #[inline]
-    pub fn when(&self) -> &Expr { &self.when }
+    pub fn when(&self) -> Option<&Expr>{ self.when.as_ref() }
     #[inline]
     pub fn block(&self) -> &BlockExpr { &self.block }
     #[inline]
@@ -293,12 +324,17 @@ impl BlockExpr {
 pub struct BlockClauseExpr {
    pub(crate) select: QueryExpr,
    pub(crate) block: BlockExpr,
+   pub(crate) message: Option<String>,
    pub(crate) location: Location,
 }
 
 impl BlockClauseExpr {
     pub fn new(select: QueryExpr, block: BlockExpr, location: Location) -> Self {
-        BlockClauseExpr { select, block, location }
+        Self::new_with_msg(select, block, location, None)
+    }
+
+    pub fn new_with_msg(select: QueryExpr, block: BlockExpr, location: Location, message: Option<String>) -> Self {
+        BlockClauseExpr { select, block, location, message }
     }
 
     #[inline]
@@ -586,6 +622,7 @@ impl Expr {
             V: crate::visitor::Visitor<'expr>
     {
         match self {
+            Expr::File(value_expr) => visitor.visit_file(self, value_expr),
             Expr::Rule(value_expr) => visitor.visit_rule(self, value_expr),
             Expr::Let(value_expr) => visitor.visit_let(self, value_expr),
             Expr::When(value_expr) => visitor.visit_when(self, value_expr),

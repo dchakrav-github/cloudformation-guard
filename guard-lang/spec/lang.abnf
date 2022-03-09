@@ -1,0 +1,196 @@
+/* An Guard Language file defines a set of rules that can enforced for policy */
+file            = *(
+                     comment  /
+                     let-expr /
+                     rule-expr
+                   )
+
+/* Let expression provides assignments to named variables. Let expression can
+ * provide either assignment to query or a value. It also provides an OR assignment
+ * that allows on to first evaluated the left hand side expression and if that fails
+ * assigns right hand side expression
+ */
+let-expr        = let 1*OCS var_name 1*OCS assign *OCS
+                  ( let-query | value ) [1*OCS or-operator 1*OCS (let-query | value)]
+
+/* "let" keyword for assignment statements */
+let             = %x108.101.116         ; let
+
+/* Let query form is a bit different from regular select/filter form in the sense that
+ * no variable captures are allowed
+ */
+let-query       = let-query-segment [ *OCS decimal-dot *OCS *let-query-segment ]
+
+let-query-segment   = property-name [ *OCS open-braces *OCS let-filter-expr *OCS close-braces ]
+
+/* Property names are ASCII or quoted string with any character. For UTF-8 string
+ * please use string-literal version
+ */
+property-name       = var-name /
+                      string-literal /
+                      var-reference
+
+let-filter-expr     = var-reference     /           ; variable reference like %names
+                      integer-literal   /           ; array index
+                      string-literal    /           ; map lookup
+                      1*block-expr                  ; filtering
+
+var-reference       = percentage var-name
+
+/* Key character references */
+assign              = %x61                      ; =
+percentage          = %x37                      ; %
+open-braces         = %x91                      ; [
+close-braces        = %x93                      ; ]
+open-brackets       = %x123                     ; {
+close-brackets      = %x125                     ; }
+open-parenthesis    = %x40                      ; (
+close-parenthesis   = %41                       ; )
+vertical-bar        = %x124                     ; |
+decimal-dot         = %x46                      ; .
+not                 = %x110.111.116             ; not
+
+/* Expression related rules */
+block-expr          = *(let-expr) *OCS and-conjunction *OCS
+
+
+/* Conjunctive Normal form related rules */
+
+/* AND conjunctions is and of disjunction clauses. It has an optional negation
+ * clause at the start of the expression
+ */
+and-conjunction     = [NOT] conjunction-expr
+conjunction-expr    = disjunction-expr *(AND disjunction-expr)
+disjunction-expr    = expr [1*OCS OR 1*OCS expr]
+
+inline-and          = %x97.110.100 /            ; and
+                      %x65.78.68   /            ; AND
+                      %x38.38                   ; &&
+
+implicit-and        = CR           /            ; \r
+                      LF                        ; \n
+
+AND                 = inline-and / implicit-and
+
+OR                  = %x79.82       /           ; OR
+                      %x111.114     /           ; or
+                      2*vertical-bar            ; ||
+
+NOT                 = not 1*OCS     /           ; not<1*space/comment>
+                      %x33                      ; !
+
+expr                = group-expr    /
+                      unary-expr    /
+                      binary-expr
+
+group-expr          = *OCS open-parenthesis *OCS and-conjunction *OCS close-parenthesis
+
+
+/* Query */
+query               = query-segement [ *OCS decimal-dot *OCS query-segment ]
+query-segment       = property-name [ *OCS open-braces *OCS query-filter-segment *OCS close-braces ]
+
+query-filter-segment    = let-filter-expr   /
+                          var-name          /                               ; variable capture
+                          [var-name *OCS vertical-bar *OCS] 1*block-expt    ;
+
+/* Unary operations */
+unary-expr          = prefix-unary-expr /
+                      suffix-unary-expr
+
+
+prefix-unary-expr   = prefix-unary-operation 1*OCS query [ *OCS message-doc ]
+suffix-unary-expr   = query 1*OCS postfix-unary-operator [ *OCS message-doc ]
+
+postfix-unary-operator  = [NOT] exists          /
+                          [NOT] empty           /
+                          [NOT] is-string       /
+                          [NOT] is-integer      /
+                          [NOT] is-float        /
+                          [NOT] is-bool         /
+                          [NOT] is-map          /
+                          [NOT] is-list
+
+prefix-unary-operator   = any                   /   ; zero or more match
+                          anyone                /   ;
+                          atleast-one           /   ; one or more match
+                          some                      ;
+
+any                     = "any" / "ANY"
+anyone                  = "anyone" / "ANYONE"
+atleast-one             = "atleast-one" / "ATLEAST-ONE"
+some                    = "some"
+
+is-string           = "IS_STRING"   /   "is_string"
+is-integer          = "IS_INTEGER"  /   "is_integer"
+is-float            = "IS_FLOAT"    /   "is_float"
+is-bool             = "IS_BOOL"     /   "is_bool"
+is-map              = "IS_MAP"      /   "is_map"
+is-list             = "IS_LIST"     /   "is_list"
+
+/* Binary operations */
+binary-expr         = [prefix-unary-operator 1*OCS] query-or-value *OCS binary-operator *OCS query-or-value
+binary-operator     = ;
+
+
+/* Variable name
+ *
+ * all of the start with alphabet and can have any number of alpha numeric or "_" following
+ * them
+ */
+var_name        = ALPHA *(ALPHA / DIGIT / "_" )
+
+/* This should be fixed to UTF-8 */
+alpha_numeric   = [0-9A-Za-z]
+alpha           = [a-zA-Z]
+
+OCS             = 1*(comment|multispace)
+
+/* Comments start with # until end of line is encountered. */
+comment         = pound (any_char - end_of_line)* end_of_line
+pound           = %x35              ; #
+
+/* The entire UTF-8 character range */
+any_char        = [\\u{0}-\\u{10FFFF}]
+
+/* mapping for a end of line character that maps \r\n, \n or EOF */
+end_of_line     = "\u000D\u000A"
+                  | "\u000A"
+                  | EOF
+
+/* space or end_of_line */
+multispace      = ( space | end_of_line )
+space           = "\u0020"
+
+/* OR disjunction */
+or_operator     = "or"
+                  | "OR"
+                  | "||"
+
+/* AND conjunction */
+and_operator    = "and"
+                  | "AND"
+                  | "&&"
+                  | end_of_line
+
+/*
+ * value can be scalar, an array or map type. Value can contain literals or query types
+ */
+value           = ( scalar | array | map )
+
+/* Literals that are supported */
+scalar          = string_literal
+                  | integer_literal
+                  | float_literal
+                  | bool_literal
+
+/* String literals
+ *
+ * All strings are enclosed inside '"' or "'". The quotes can be escaped
+ */
+string_literal              = single_quote (escape_single|any_char)* single_quote
+                              | double_quote (escape_double|any_char)* double_quote
+single_quote                = "'"
+double_quote                = "\""
+escape_single               = "\\" single_quote
+escape_double               = "\\" double_quote

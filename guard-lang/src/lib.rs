@@ -12,7 +12,7 @@ pub use visitor::Visitor;
 pub use exprs::*;
 pub use types::*;
 
-pub use parser::and_conjunctions;
+pub use parser::parse_rules_file;
 
 
 #[cfg(test)]

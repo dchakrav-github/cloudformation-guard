@@ -552,6 +552,7 @@ fn test_parse_collection() {
                 let result = parse_array(span);
                 assert_eq!(result.is_err(), true);
                 match result.unwrap_err() {
+                    nom::Err::Failure(pe) |
                     nom::Err::Error(pe) => {
                         assert_eq!(pe.get_location(), location);
                     },
@@ -1261,7 +1262,7 @@ fn test_or_disjunctions() {
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
-        let result = inline_expressions(parse_unary_binary_or_block_expr)(span);
+        let result = parse_disjunction_expr(span);
         println!("{}, {:?}", to_parse, result);
         assert_eq!(result.is_ok(), true);
         struct AssertionsVisitor{}
@@ -1322,7 +1323,7 @@ fn test_or_disjunctions() {
 
     failures.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
-        let result = inline_expressions(parse_unary_binary_or_block_expr)(span);
+        let result = parse_disjunction_expr(span);
         assert_eq!(result.is_err(), true);
         println!("{} {:?}", to_parse, result);
         let pe = match result.unwrap_err() {
@@ -1364,7 +1365,7 @@ fn test_and_conjunctions() {
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
-        let result = and_conjunctions(span);
+        let result = parse_and_conjunction(span);
         let mut my_vec: Vec<String> = Vec::new();
         assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
         #[derive(Debug)]
@@ -1441,7 +1442,7 @@ fn test_and_conjunctions() {
 
     failures.iter().for_each(|to_parse|{
         let span = Span::new_extra(*to_parse, "");
-        let result = and_conjunctions(span);
+        let result = parse_and_conjunction(span);
         println!("{} {:?}", to_parse, result);
         assert_eq!(result.is_err(), true);
     });
@@ -1726,6 +1727,122 @@ fn test_with_block_queries() {
         let result = parse_query_block_expr(span);
         println!("{:?}", result);
         assert_eq!(result.is_err(), true);
+    });
+}
+
+#[test]
+fn test_not_prefix() {
+    let success = [
+        "not Resources EXISTS",
+        "!Resources EXISTS",
+        " ! Resources EXISTS",
+        "not Resources[*] { Properties EXISTS && Metadata EXISTS }",
+        "not ((Resources EXISTS && AWSTemplateVersion EXISTS) or (Resources EXISTS &&  Hooks EXISTS))",
+        "not Type == 'AWS::S3::Bucket'",
+    ];
+
+    struct NotAssertions{}
+    impl Visitor<'_> for NotAssertions {
+        type Value = ();
+        type Error = ();
+
+        fn visit_select(self, _expr: &'_ Expr, value: &'_ QueryExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.parts {
+                each.accept(NotAssertions{})?;
+            }
+            Ok(())
+        }
+
+        fn visit_binary_operation(self, _expr: &'_ Expr, value: &'_ BinaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.operator == BinaryOperator::Equals ||
+                value.operator == BinaryOperator::And    ||
+                value.operator == BinaryOperator::Or,
+                true,
+                "Unexpected binary operation {:?}",
+                value.operator
+            );
+            value.lhs.accept(NotAssertions{})?;
+            value.rhs.accept(NotAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_unary_operation(self, _expr: &'_ Expr, value: &'_ UnaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.operator == UnaryOperator::Exists ||
+                value.operator == UnaryOperator::Not,
+                true
+            );
+            value.expr.accept(NotAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_string(self, _expr: &'_ Expr, value: &'_ StringExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "*"                      ||
+                value.value == "Metadata"               ||
+                value.value == "Resources"              ||
+                value.value == "Tags"                   ||
+                value.value == "AWSTemplateVersion"     ||
+                value.value == "Type"                   ||
+                value.value == "AWS::S3::Bucket"        ||
+                value.value == "Hooks"                  ||
+                value.value == "Properties",
+                true,
+                "Unexpected {:?}",
+                value
+            );
+            Ok(())
+        }
+
+        fn visit_block(self, _expr: &'_ Expr, value: &'_ BlockClauseExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.select.parts {
+                each.accept(NotAssertions{})?;
+            }
+            assert_eq!(value.block.assignments.is_empty(), true, "{:?}", value.block.assignments);
+            value.block.clause.accept(NotAssertions{})?;
+            Ok(())
+        }
+
+
+
+        fn visit_any(self, expr: &'_ Expr) -> Result<Self::Value, Self::Error> {
+            todo!()
+        }
+    }
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_and_conjunction(span);
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
+        let expr = result.unwrap().1;
+        let result = expr.accept(NotAssertions{});
+        assert_eq!(result.is_ok(), true, "{:?}", result);
+    });
+
+}
+
+#[test]
+fn test_atleast_one() {
+    let success = [
+        r#"atleast-one Resources[*] {
+            Properties EXISTS
+            Metadata EXISTS
+        }
+        "#,
+        r#"Resources[ name | Type == 'AWS::DynamoDB::Table' ].Properties {
+            atleast-one Tags[*] {
+                Key == /^PROD/
+                Value == /App/
+            } <<TXT
+                The DDB table { $name } does not have any PROD App Key { $Tags }
+            TXT
+        }"#
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_unary_binary_or_block_expr(span);
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
     });
 
 }

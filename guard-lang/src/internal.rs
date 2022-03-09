@@ -24,6 +24,7 @@ impl PartialEq<f64> for FloatExpr {
 impl Expr {
     pub(crate) fn get_location(&self) -> &Location {
         match self {
+            Expr::File(value_expr) => &value_expr.location,
             Expr::Rule(value_expr) =>  &value_expr.location,
             Expr::Let(value_expr) => &value_expr.location,
             Expr::When(value_expr) => &value_expr.location,

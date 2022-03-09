@@ -6,6 +6,11 @@ pub trait Visitor<'expr>: Sized {
     type Value;
     type Error;
 
+    fn visit_file(self,
+                  expr: &'expr Expr,
+                  _file: &'expr FileExpr)     -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
     fn visit_rule(self,
                   expr: &'expr Expr,
                   _rule: &'expr RuleExpr)     -> Result<Self::Value, Self::Error> {
