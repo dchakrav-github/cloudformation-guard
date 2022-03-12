@@ -24,6 +24,7 @@ use nom::number::complete::{
 use nom::sequence::{delimited, preceded, separated_pair, tuple, terminated};
 use crate::Expr;
 use std::collections::VecDeque;
+use crate::Expr::UnaryOperation;
 
 type IResult<I, O> = nom::IResult<I, O, ParseError>;
 
@@ -441,7 +442,7 @@ fn parse_map(input: Span) -> IResult<Span, Expr> {
         let (left, (key, value)) = separated_pair(
             parse_map_key,
             parse_map_key_value_sep,
-            parse_value)(span)?;
+            let_query_or_value)(span)?;
 
         span = left;
         if let Expr::String(key) = key {
@@ -496,7 +497,7 @@ fn parse_array(input: Span) -> IResult<Span, Expr> {
         return Ok((left, Expr::Array(Box::new(ArrayExpr::new(collection, location)))))
     }
     loop {
-        let (left, value) = cut(parse_value)(span)?;
+        let (left, value) = cut(let_query_or_value)(span)?;
         collection.push(value);
         span = left;
         match parse_value_separator(span) {
@@ -717,16 +718,21 @@ fn query_or_value(input: Span) -> IResult<Span, Expr> {
 }
 
 fn binary_cmp_operator(input: Span) -> IResult<Span, BinaryOperator> {
-    strip_comments_space(alt( (
-        value(BinaryOperator::Equals, tag("==")),
-        value(BinaryOperator::NotEquals, tag("!=")),
-        // Order matter, we first check specific ">=" before ">" to prevent partial matches
-        value(BinaryOperator::GreaterThanEquals, tag(">=")),
-        value(BinaryOperator::Greater, preceded(tag(">"), peek(nom::combinator::not(char('>'))))),
-        value(BinaryOperator::LesserThanEquals, tag("<=")),
-        value(BinaryOperator::Lesser, preceded(tag("<"), peek(nom::combinator::not(char('<'))))),
-        value(BinaryOperator::In, alt((tag("in"), tag("IN")))),
-    )))(input)
+    alt( (
+        strip_comments_space(
+            alt((
+                value(BinaryOperator::Equals, tag("==")),
+                value(BinaryOperator::NotEquals, tag("!=")),
+                // Order matter, we first check specific ">=" before ">" to prevent partial matches
+                value(BinaryOperator::GreaterThanEquals, tag(">=")),
+                value(BinaryOperator::Greater, preceded(tag(">"), peek(nom::combinator::not(char('>'))))),
+                value(BinaryOperator::LesserThanEquals, tag("<=")),
+                value(BinaryOperator::Lesser, preceded(tag("<"), peek(nom::combinator::not(char('<')))))
+            ))),
+        strip_comments_trailing_space(
+            value(BinaryOperator::In, alt((tag("in"), tag("IN"))))
+        ),
+    ))(input)
 }
 
 fn parse_binary_bool_expr(input: Span) -> IResult<Span, Expr> {
@@ -764,7 +770,7 @@ fn here_doc(input: Span) -> IResult<Span, String> {
             (input, (*split.1.fragment()).to_string())
         }
     };
-    let (input, _space) = cut(multispace1)(input)?;
+    let (input, _space) = cut(one_or_more_ws_or_comment)(input)?;
     Ok((input, message))
 }
 
@@ -1084,6 +1090,7 @@ where
     P: FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
 {
     move |input: Span| {
+        let location = Location::new(input.location_line(), input.get_column());
         let (input, not) = opt(not)(input)?;
         let (input, expr) = parser(input)?;
         let mut ands = VecDeque::with_capacity(4);
@@ -1097,7 +1104,15 @@ where
             // else we hit an implicit AND with \r or \n
             //
             match preceded(opt(and_operator), |i| parser(i))(next) {
-                Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(ands, BinaryOperator::And))),
+                Err(nom::Err::Error(_)) => {
+                    let and_expr = reduce_ands_ors(ands, BinaryOperator::And);
+                    return Ok((next, match not {
+                        Some(op) => Expr::UnaryOperation(Box::new(
+                                UnaryExpr::new(op, and_expr, location)
+                            )),
+                        None => and_expr
+                    }))
+                }
                 Ok((span, expr)) => {
                     ands.push_back(expr);
                     next = span;

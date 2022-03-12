@@ -10,7 +10,7 @@ file            = *(
  * that allows on to first evaluated the left hand side expression and if that fails
  * assigns right hand side expression
  */
-let-expr        = OCS* let 1*OCS var_name 1*OCS assign *OCS
+let-expr        = OCS* let 1*OCS var-name 1*OCS assign *OCS
                   ( let-query | value ) [1*OCS or-operator 1*OCS (let-query | value)]
 
 /* "let" keyword for assignment statements */
@@ -30,6 +30,10 @@ property-name       = var-name /
                       string-literal /
                       var-reference
 
+/* Assignment filter expressions does have variable captures allowed.
+ * It allows for lookup by key on map/structs, lookup by index on collection
+ * or just filter by clauses
+ */
 let-filter-expr     = var-reference     /           ; variable reference like %names
                       integer-literal   /           ; array index
                       string-literal    /           ; map lookup
@@ -39,19 +43,35 @@ var-reference       = percentage var-name
 
 /* Key character references */
 assign              = %x61                      ; =
+
 percentage          = %x37                      ; %
+
 open-braces         = %x91                      ; [
+
 close-braces        = %x93                      ; ]
+
 open-brackets       = %x123                     ; {
+
 close-brackets      = %x125                     ; }
+
 open-parenthesis    = %x40                      ; (
+
 close-parenthesis   = %41                       ; )
+
 vertical-bar        = %x124                     ; |
+
 decimal-dot         = %x46                      ; .
+
 not                 = %x110.111.116             ; not
 
-/* Expression related rules */
-block-expr          = *(let-expr) *OCS and-conjunction *OCS
+/* Primary Language Expressions */
+
+/* Block expression contains one or more assignment expressions along with
+ * and conjunction using those assignments. Any block expression must contain
+ * atleast one and-conjunction.
+ * Assignment and conjunctions statements can be interleaved
+ */
+block-expr          = *OCS ( *(let-expr / and-conjunction) / and-conjunction ) *OCS
 
 
 /* Conjunctive Normal form related rules */
@@ -61,10 +81,10 @@ block-expr          = *(let-expr) *OCS and-conjunction *OCS
  */
 and-conjunction     = [NOT] conjunction-expr
 conjunction-expr    = disjunction-expr *(AND disjunction-expr)
-disjunction-expr    = expr [1*OCS OR 1*OCS expr]
+disjunction-expr    = expr [OR expr]
 
-inline-and          = %x97.110.100 /            ; and
-                      %x65.78.68   /            ; AND
+inline-and          = %x97.110.100 1*OCS  /     ; and
+                      %x65.78.68 1*OCS    /     ; AND
                       %x38.38                   ; &&
 
 implicit-and        = CR           /            ; \r
@@ -72,8 +92,8 @@ implicit-and        = CR           /            ; \r
 
 AND                 = inline-and / implicit-and
 
-OR                  = %x79.82       /           ; OR
-                      %x111.114     /           ; or
+OR                  = 1*OCS %x79.82 1*OCS      /  ; OR
+                      1*OCS %x111.114 1*OCS    /  ; or
                       2*vertical-bar            ; ||
 
 NOT                 = not 1*OCS     /           ; not<1*space/comment>
@@ -85,23 +105,29 @@ expr                = group-expr    /
                       rule-expr
 
 group-expr          = *OCS open-parenthesis *OCS and-conjunction *OCS close-parenthesis
+
 unary-expr          = prefix-unary-expr / suffix-unary-expr
+
 binary-expr         = [prefix-unary-operator 1*OCS] query-or-value *OCS binary-operator *OCS query-or-value
+
 rule-expr           = var-name [*OCS open-parenthesis *OCS 1*parameters *OCS
                                 ((value-separator *OCS close-parenthesis) / close-parenthesis)]
 
+
 value-separator     =" %x44                     ; ,
+
 parameters          = parameter *(*OCS value-separator *OCS parameter)
-parameter           = query-or-value [*OCS OR *OCS query-or-value]
 
-/* Binary operations */
-binary-operator     = ;
+parameter           = query-or-value [OR query-or-value]
 
-
+/* Unary operation related expressions
+ */
 prefix-unary-expr   = prefix-unary-operation 1*OCS query [ *OCS message-doc ]
-suffix-unary-expr   = query 1*OCS postfix-unary-operator [ *OCS message-doc ]
+suffix-unary-expr   = query 1*OCS suffix-unary-operator [ *OCS message-doc ]
 
-postfix-unary-operator  = [NOT] exists          /
+/* Boolean unary expressions
+ */
+suffix-unary-operator  =  [NOT] exists          /
                           [NOT] empty           /
                           [NOT] is-string       /
                           [NOT] is-integer      /
@@ -114,70 +140,87 @@ prefix-unary-operator   = any                   /   ; zero or more match
                           anyone                /   ;
                           atleast-one           /   ; one or more match
                           some                  /   ;
-                          keys                  /   ; keys for map
+                          keys                  /   ; keys Gfor map
                           indices                   ; indices for a collection
 
 any                     = "any" / "ANY"
 anyone                  = "anyone" / "ANYONE"
 atleast-one             = "atleast-one" / "ATLEAST-ONE"
 some                    = "some"
-keys                     = "keys" / "KEYS"
 
-is-string           = "IS_STRING"   /   "is_string"
-is-integer          = "IS_INTEGER"  /   "is_integer"
-is-float            = "IS_FLOAT"    /   "is_float"
-is-bool             = "IS_BOOL"     /   "is_bool"
-is-map              = "IS_MAP"      /   "is_map"
-is-list             = "IS_LIST"     /   "is_list"
+/* Function based unary operations, they functions return a
+ * list of values from the RHS
+ */
+keys                    = "keys" / "KEYS"
+indices                 = "indices" / "INDICES"
+
+is-string           = "IS-STRING"   /   "is-string"
+is-integer          = "IS-INTEGER"  /   "is-integer"
+is-float            = "IS-FLOAT"    /   "is-float"
+is-bool             = "IS-BOOL"     /   "is-bool"
+is-map              = "IS-MAP"      /   "is-map"
+is-list             = "IS-LIST"     /   "is-list"
+
+/* Binary operation related expressions
+ */
+binary-operator     = equals                / ;
+                      not-equals            /
+                      greater               / ;
+                      greater-than-equals   / ;
+                      lesser                / ;
+                      lesser-than-equals    / ;
+                      in                    / ;
+                      AND                   / ;
+                      OR
+
+equals              = "=="
+not-equals          = "!="
+greater             = ">"
+greater-than-equals = ">="
+lesser              = "<"
+lesser-than-equals  = "<="
+in                  = *OCS ("in" / "IN") 1*OCS
+
+binary-expr         = query-or-value binary-operator query-or-value
+
+query-or-value      = *OCS (query / value) *OCS
 
 /* Query */
-query               = query-segement [ *OCS decimal-dot *OCS query-segment ]
+query               = query-segment [ *OCS decimal-dot *OCS query-segment ]
 query-segment       = property-name [ *OCS open-braces *OCS query-filter-segment *OCS close-braces ]
 
 query-filter-segment    = let-filter-expr   /
                           var-name          /                               ; variable capture
-                          [var-name *OCS vertical-bar *OCS] 1*block-expt    ;
+                          [var-name *OCS vertical-bar *OCS] 1*block-expr    ;
 
 
 /* Variable name
  *
- * all of the start with alphabet and can have any number of alpha numeric or "_" following
+ * all of the start with alphabet and can have any number of alpha numeric or "-" following
  * them
  */
-var_name        = ALPHA *(ALPHA / DIGIT / "_" )
+var-name        = ALPHA *(ALPHA / DIGIT / "-" )
 
 /* This should be fixed to UTF-8 */
-alpha_numeric   = [0-9A-Za-z]
+alpha-numeric   = [0-9A-Za-z]
 alpha           = [a-zA-Z]
 
 OCS             = 1*(comment|multispace)
 
 /* Comments start with # until end of line is encountered. */
-comment         = pound (any_char - end_of_line)* end_of_line
+comment         = pound (any-char - end-of-line)* end-of-line
 pound           = %x35              ; #
 
 /* The entire UTF-8 character range */
-any_char        = [\\u{0}-\\u{10FFFF}]
+any-char        = [\\u{0}-\\u{10FFFF}]
 
 /* mapping for a end of line character that maps \r\n, \n or EOF */
-end_of_line     = "\u000D\u000A"
-                  | "\u000A"
-                  | EOF
+end-of-line     = CR / LF / EOF
 
-/* space or end_of_line */
-multispace      = ( space | end_of_line )
+/* space or end-of-line */
+multispace      = ( space | end-of-line )
+
 space           = "\u0020"
-
-/* OR disjunction */
-or_operator     = "or"
-                  | "OR"
-                  | "||"
-
-/* AND conjunction */
-and_operator    = "and"
-                  | "AND"
-                  | "&&"
-                  | end_of_line
 
 /*
  * value can be scalar, an array or map type. Value can contain literals or query types
@@ -185,18 +228,74 @@ and_operator    = "and"
 value           = ( scalar | array | map )
 
 /* Literals that are supported */
-scalar          = string_literal
-                  | integer_literal
-                  | float_literal
-                  | bool_literal
+scalar          = string-literal    /
+                  integer-literal   /
+                  float-literal     /
+                  bool-literal      /
+                  regex-literal
 
 /* String literals
  *
  * All strings are enclosed inside '"' or "'". The quotes can be escaped
  */
-string_literal              = single_quote (escape_single|any_char)* single_quote
-                              | double_quote (escape_double|any_char)* double_quote
-single_quote                = "'"
-double_quote                = "\""
-escape_single               = "\\" single_quote
-escape_double               = "\\" double_quote
+string-literal      = single-quote (escape-single|any-char)* single-quote /
+                      double-quote (escape-double|any-char)* double-quote
+
+single-quote                = "'"
+
+double-quote                = "\""
+
+escape-single               = "\\" single-quote
+
+escape-double               = "\\" double-quote
+
+/* Regex literals
+ */
+regex-literal           = forward-slash *(escape-forward-slash|any-char) forward-slash
+
+forward-slash           = %x47              ; /
+
+escape-forward-slash    = "\\" forward-slash
+
+/* integer literal
+ */
+sign                    = ("+" / "-")
+
+integer-literal         = [sign] 1*DIGIT1 1*OCS
+
+/* float literal
+ */
+float-literal           = [sign] ( decimal-dot 1*DIGIT                      /
+                                   1*DIGIT decimal-dot *(DIGIT)             /
+                                   1*DIGIT ( "e" / "E" ) [sign] 1*DIGIT )
+
+bool-literal            = true /
+                          false
+
+true                    = "true" / "TRUE"
+
+false                   = "false" / "FALSE"
+
+/* Array or collection, there is no special provision for sets here
+ */
+array                   = *OCS open-braces *OCS
+                               (1*array-values *OCS
+                               ((value-separator *OCS close-braces) / close-braces)) /
+                               close-braces
+
+array-values            = array-value *(*OCS value-separator *OCS array-value)
+
+array-value             = let-query / value
+
+map                     = *OCS open-brackets
+                              (1*key-values *OCS
+                               ((map-value-separator *OCS close-brackets) / close-brakets)) /
+                              close-brackets
+
+key-values              = key-value *(map-value-separator key-value)
+
+key-value               = key-type *OCS map-value-separator *OCS map-value
+
+key-type                = var-name / string-literal
+
+map-value               = array-value

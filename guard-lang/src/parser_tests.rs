@@ -937,7 +937,7 @@ fn test_binary_cmp_operator() {
         ">=",
         "> >",  // Ok
         "< <",  // Ok
-        "in"
+        "in " // has to have space after
     ];
 
     let expected = [
