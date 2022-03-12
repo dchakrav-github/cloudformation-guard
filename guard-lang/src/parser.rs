@@ -24,7 +24,6 @@ use nom::number::complete::{
 use nom::sequence::{delimited, preceded, separated_pair, tuple, terminated};
 use crate::Expr;
 use std::collections::VecDeque;
-use crate::Expr::UnaryOperation;
 
 type IResult<I, O> = nom::IResult<I, O, ParseError>;
 

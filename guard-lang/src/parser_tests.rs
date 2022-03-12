@@ -1748,7 +1748,7 @@ fn test_with_block_queries() {
             Ok(())
         }
 
-        fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+        fn visit_any(self, _expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
             todo!()
         }
     }
@@ -1856,7 +1856,7 @@ fn test_not_prefix() {
 
 
 
-        fn visit_any(self, expr: &'_ Expr) -> Result<Self::Value, Self::Error> {
+        fn visit_any(self, _expr: &'_ Expr) -> Result<Self::Value, Self::Error> {
             todo!()
         }
     }
