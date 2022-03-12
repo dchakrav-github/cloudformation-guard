@@ -11,11 +11,19 @@ pub trait Visitor<'expr>: Sized {
                   _file: &'expr FileExpr)     -> Result<Self::Value, Self::Error> {
         self.visit_any(expr)
     }
+
     fn visit_rule(self,
                   expr: &'expr Expr,
                   _rule: &'expr RuleExpr)     -> Result<Self::Value, Self::Error> {
         self.visit_any(expr)
     }
+
+    fn visit_rule_clause(self,
+                         expr: &'expr Expr,
+                         _rule_clause: &'expr RuleClauseExpr)     -> Result<Self::Value, Self::Error> {
+        self.visit_any(expr)
+    }
+
 
     fn visit_let(self,
                  expr: &'expr Expr,

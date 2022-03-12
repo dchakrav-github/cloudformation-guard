@@ -26,6 +26,7 @@ impl Expr {
         match self {
             Expr::File(value_expr) => &value_expr.location,
             Expr::Rule(value_expr) =>  &value_expr.location,
+            Expr::RuleClause(value_expr) => value_expr.location(),
             Expr::Let(value_expr) => &value_expr.location,
             Expr::When(value_expr) => &value_expr.location,
             Expr::Select(value_expr) => &value_expr.location,

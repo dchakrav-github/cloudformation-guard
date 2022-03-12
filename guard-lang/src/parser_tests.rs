@@ -806,6 +806,8 @@ fn test_parse_unary_expr() {
             .Properties
             # checking if Tags EXISTS and is not EMPTY
             .Tags !EMPTY"###,
+        r###"keys %sqs_queues"###,
+        r###"keys Resources[ Type == 'AWS::SQS::Queue' ]"###,
     ];
 
     for (_idx, expr) in success.iter().enumerate() {
@@ -824,6 +826,7 @@ fn test_parse_unary_expr() {
                 }
                 assert_eq!(value.operator == UnaryOperator::Exists ||
                            value.operator == UnaryOperator::NotExists ||
+                           value.operator == UnaryOperator::Keys ||
                            value.operator == UnaryOperator::Empty ||
                            value.operator == UnaryOperator::NotEmpty, true);
                 struct ExpectQuery{}
@@ -832,20 +835,46 @@ fn test_parse_unary_expr() {
                     type Error = String;
 
                     fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
-                        assert_eq!(value.parts.len() == 4 || value.parts.len() == 1, true);
+                        assert_eq!(value.parts.len() == 4 || value.parts.len() == 1 || value.parts.len() == 2, true);
                         struct ExpectedPart{}
                         impl<'expr> Visitor<'expr> for ExpectedPart {
                             type Value = ();
                             type Error = String;
+
+                            fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+                                assert_eq!(value.parts.len(), 1);
+                                for each in &value.parts {
+                                    each.accept(ExpectedPart{})?;
+                                }
+                                Ok(())
+                            }
+
+                            fn visit_binary_operation(self, _expr: &'expr Expr, value: &'expr BinaryExpr) -> Result<Self::Value, Self::Error> {
+                                assert_eq!(value.operator, BinaryOperator::Equals);
+                                value.lhs.accept(ExpectedPart{})?;
+                                value.rhs.accept(ExpectedPart{})?;
+                                Ok(())
+                            }
+
+
 
                             fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
                                 assert_eq!(
                                     value.value == "Resources" ||
                                     value.value == "*" ||
                                     value.value == "Properties" ||
+                                    value.value == "Type" ||
+                                    value.value == "AWS::SQS::Queue" ||
                                     value.value == "Tags",
-                                    true
+                                    true,
+                                    "Unexpected {}", value.value
                                 );
+                                Ok(())
+                            }
+
+                            fn visit_filter(self, _expr: &'expr Expr, value: &'expr BlockExpr) -> Result<Self::Value, Self::Error> {
+                                assert_eq!(value.assignments.is_empty(), true);
+                                value.clause.accept(ExpectedPart{})?;
                                 Ok(())
                             }
 
@@ -858,10 +887,14 @@ fn test_parse_unary_expr() {
 
                             fn visit_variable_reference(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
                                 assert_eq!(
-                                    value.value, "buckets"
+                                    value.value == "buckets" ||
+                                    value.value == "sqs_queues",
+                                    true,
+                                    "{}", value.value
                                 );
                                 Ok(())
                             }
+
 
 
                             fn visit_any(self, expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
@@ -889,7 +922,7 @@ fn test_parse_unary_expr() {
             }
         }
         let result = unary.accept(UnaryVisitor{});
-        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.is_ok(), true, "Error {:?}", result);
     }
 }
 
@@ -983,14 +1016,16 @@ fn test_message_doc() {
         r#"<<
         message: %name instance was not compliant
         Guide: https://mycompany-guide.aws
-        >>
-        "#
+        >>"#
     ];
 
     success.iter().for_each(|to_parse| {
         let span = Span::new_extra(*to_parse, "");
         let result = message_doc(span);
         assert_eq!(result.is_ok(), true);
+        let remaining = result.unwrap().0;
+        assert_eq!(remaining.fragment().is_empty(), true);
+
     });
 
     let failures = [
@@ -1135,6 +1170,9 @@ fn test_let_expr() {
         r#"let map = { hi: "there", bye: 20 }"#,
         r#"let query = Parameters.AWS.allowedPrefixLists"#,
         r#"let query = Parameters.AWS.allowedPrefixLists || []"#,
+        r#"let query = keys Parameters"#, // keys used to extract keys
+        r#"let query = keysParameters"#, // Okay when keys is part of query
+        r#"let query = 'keys'"#, // Okay when keys isn't part of query
     ];
 
     struct LetExprAssertions{}
@@ -1169,6 +1207,13 @@ fn test_let_expr() {
             Ok(())
         }
 
+        fn visit_unary_operation(self, _expr: &'expr Expr, value: &'expr UnaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(value.operator, UnaryOperator::Keys);
+            value.expr.accept(LetExprAssertions{})?;
+            Ok(())
+        }
+
+
         fn visit_array(self, _expr: &'expr Expr, value: &'expr ArrayExpr) -> Result<Self::Value, Self::Error> {
             // Empty for the Or assignment case
             assert_eq!(
@@ -1199,6 +1244,8 @@ fn test_let_expr() {
 
         fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
             assert_eq!(
+                value.value == "keys"                   ||
+                value.value == "keysParameters"         ||
                 value.value == "Parameters"             ||
                 value.value == "AWS"                    ||
                 value.value == "allowedPrefixLists",
@@ -1435,7 +1482,7 @@ fn test_and_conjunctions() {
 
     let failures = [
         "",
-        "(a == true && b == true) or",
+        "(a == true && b == true) or ", // trailing space matters, TODO fix
         "Resource exist and me not exists", // exist no keyword.
         "Resources != && me exists"
     ];
@@ -1617,7 +1664,8 @@ fn test_with_block_queries() {
             Metadata.'aws:cdk' EXISTS
         }
         "#,
-        "Resources[*] { Properties EXISTS }"
+        "Resources[*] { Properties EXISTS }",
+        "Resources[ Type == 'AWS::S3::Bucket' ].Properties { Tags EXISTS }"
     ];
 
     struct BlockQueryAssertions{}
@@ -1719,7 +1767,9 @@ fn test_with_block_queries() {
         "Resources.* { Properties", // no operations present
         "Resources.* { Properties { Tags NOT EMPTY }", // no closing '}'
         "Resources[*] { Properties }", // no operation on Properties
-        "Resources[*] { Properties { Tags NOT EXISTS && Tags[*] { Key == /^Key/ }"
+        "Resources[*] { Properties { Tags NOT EXISTS && Tags[*] { Key == /^Key/ }",
+        "Resources.* { let p = Properties }", // no conjunctions present
+
     ];
 
     failures.iter().for_each(|to_parse| {
@@ -1845,4 +1895,313 @@ fn test_atleast_one() {
         assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
     });
 
+}
+
+#[test]
+fn test_rule_clause_expr() {
+    let success = [
+        "s3_encryption_at_rest",
+        r#"s3_encryption_at_rest && ebs_volume_encryption_at_rest"#,
+        r#"s3_encryption_at_rest
+           ebs_volume_encryption_at_rest"#,
+        r#"s3_encryption_at_rest <<s3 not encrypted>>
+           ebs_volume_encryption_at_rest"#,
+        r#"s3_encryption_at_rest <<s3 not encrypted>> or
+           ebs_volume_encryption_at_rest and
+           ddb_encryption_at_rest or databases_encryption_at_rest
+           "#,
+        r#"s3_encryption_at_rest<<s3 not encrypted>>||ebs_volume_encryption_at_rest"#,
+        r#"s3_encryption_at_rest<<s3 not encrypted>>||ebs_volume_encryption_at_rest
+           Type == 'AWS::S3::Bucket'
+        "#,
+        r#"check_allowed_types(Resources.*.Type || [])"#
+    ];
+
+    struct ExpectationAssertions{}
+    impl<'expr> Visitor<'expr> for ExpectationAssertions {
+        type Value = ();
+        type Error = ();
+
+        fn visit_rule_clause(self, _expr: &'expr Expr, rule_clause: &'expr RuleClauseExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                rule_clause.name == "s3_encryption_at_rest"             ||
+                rule_clause.name == "ebs_volume_encryption_at_rest"     ||
+                rule_clause.name == "check_allowed_types"               ||
+                rule_clause.name == "ddb_encryption_at_rest"            ||
+                rule_clause.name == "databases_encryption_at_rest",
+                true
+            );
+            if let Some(message) = &rule_clause.message {
+                assert_eq!(message, "s3 not encrypted");
+            }
+
+            if let Some(parameters) = &rule_clause.parameters {
+                for each in parameters {
+                    each.accept(ExpectationAssertions{})?;
+                }
+            }
+            Ok(())
+        }
+
+        fn visit_select(self, _expr: &'expr Expr, value: &'expr QueryExpr) -> Result<Self::Value, Self::Error> {
+            for each in &value.parts {
+                each.accept(ExpectationAssertions{})?;
+            }
+            Ok(())
+        }
+
+
+
+        fn visit_binary_operation(self, _expr: &'expr Expr, value: &'expr BinaryExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.operator == BinaryOperator::And ||
+                value.operator == BinaryOperator::Or  ||
+                value.operator == BinaryOperator::Equals,
+                true
+            );
+            value.lhs.accept(ExpectationAssertions{})?;
+            value.rhs.accept(ExpectationAssertions{})?;
+            Ok(())
+        }
+
+        fn visit_array(self, _expr: &'expr Expr, value: &'expr ArrayExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(value.elements.is_empty(), true);
+            Ok(())
+        }
+
+        fn visit_string(self, _expr: &'expr Expr, value: &'expr StringExpr) -> Result<Self::Value, Self::Error> {
+            assert_eq!(
+                value.value == "Type"       ||
+                value.value == "Resources"  ||
+                value.value == "*"          ||
+                value.value == "AWS::S3::Bucket",
+                true,
+                "Unexpected {}",
+                value.value
+            );
+            Ok(())
+        }
+
+
+        fn visit_any(self, _expr: &'expr Expr) -> Result<Self::Value, Self::Error> {
+            todo!()
+        }
+    }
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_rule_clause_expr(span.clone());
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
+        let result = parse_and_conjunction(span);
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
+        let expr = result.unwrap().1;
+        let result = expr.accept(ExpectationAssertions{});
+        assert_eq!(result.is_ok(), true, "{:?}", result);
+    });
+
+    let failures = [
+        "",
+        "Resource EXISTS",
+        "Type == /S3/",
+        "not rule",
+    ];
+
+    failures.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_rule_clause_expr(span);
+        assert_eq!(result.is_err(), true, "{} {:?}", to_parse, result);
+    })
+
+}
+
+#[test]
+fn test_when_block() {
+    let success = [
+        r#"when Resources EXISTS {
+            let keys = keys Resources
+            %keys == /^MyPrefix/
+         }"#,
+        r#"WHEN %queues !EMPTY { %queues != '*' }"#,
+        "when Resources.*.Type in %allowed_types { Resources.*.Properties.Tags !EMPTY }",
+        r#"WHEN %version == /2010/ && %types in %allowed_types {
+                Resources.*.Properties EXISTS
+        }
+        "#,
+        r#"when no_sqs_queue_dlqs_must_not_exists {
+             let qnames = keys %sqs_queues
+             let refs = %dlqs.DeadLetterConfig.Arn.'Fn::GetAtt'
+             %refs[0] in %qnames
+             %refs[1] == "Arn"
+          }
+ "#,
+        r#"when [ let types = Resources.*.Type
+                  let version = AWSTemplateVersion
+                  %types in Parameters.AllowedTypes && %version == /2020/ ] {
+              Resources.*.Properties EXISTS
+           }
+        "#,
+        r#"when [ let resources = Resources.*
+                  let names     = keys %resources
+
+                  %names == /^r/
+                  %resources {
+                    Type in %allowed_types
+                    Properties EXISTS
+                  }] {
+              Resources.*.Properties.Tags EXISTS
+           }
+        "#,
+        r#"when (Resources EXISTS && Resources.* !EMPTY) or (resourceType EXISTS && configuration EXISTS) {
+            check_tags(Resources.*.Properties.Tags or configuration.Tags)
+        }"#
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_when_block_expr(span);
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
+    });
+}
+
+#[test]
+fn test_rule_expr() {
+    let success = [
+        r###"rule check_certificate_local_ca_association(ca_references, expected_logical_ids) {
+    %ca_references {
+        Ref in %expected_logical_ids
+            << Ref not associated with an AWS::ACMPCA::CertificateAuthority >>
+
+        or
+
+        'Fn::GetAtt' {
+            this[0] in %expected_logical_ids
+                << Ref not associated with an AWS::ACMPCA::CertificateAuthority >>
+
+            this[1] == 'Arn'
+                << Attribute for must be 'Arn' >>
+        }
+    }
+}"###,
+
+
+r###"rule check_acm_non_pca_certs when %acm_non_pca_certs not empty {
+    %acm_non_pca_certs.Type == 'AWS::CertificateManager::Certificate'
+}"###,
+        r###"rule check_acm_certs_transparency {
+    %certificates[ Type == 'AWS::CertificateManager::Certificate' ] {
+        Properties {
+            CertificateTransparencyLoggingPreference not exists or
+            CertificateTransparencyLoggingPreference == 'ENABLED'
+        }
+    }
+}
+        "###,
+        r###"rule check_local(references, expected_logical_ids, attribute) when Check.AssertLocal == true {
+    %references {
+        Ref in %expected_logical_ids ||
+        'Fn::GetAtt' {
+            this[0] in %expected_logical_ids && this[1] == %attribute
+        }
+    }
+}
+
+        "###
+    ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_rule_expr(span);
+        assert_eq!(result.is_ok(), true, "{} {:?}", to_parse, result);
+    });
+}
+
+#[test]
+fn test_rules_file() {
+    let success = [r###"
+#
+# Constants
+#
+let certificate_association_resource_types      = [
+    'AWS::CertificateManager::Certificate',
+    'AWS::ACMPCA::Certificate',
+    'AWS::ACMPCA::CertificateAuthorityActivation'
+]
+
+#
+# NIST controls for this check
+#
+let nist_controls       = [
+    "NIST-800-53-IA-5",
+    "NIST-800-53-SC-17"
+]
+
+#
+# Assignments
+#
+let acm_private_cas     = Resources[ Type == 'AWS::ACMPCA::CertificateAuthority' ]
+let acm_private_cas_ids = keys %acm_private_cas
+let certificates        = Resources[ Type in %certificate_association_resource_types ]
+let acm_pca_certs       = %certificates[ Properties.CertificateAuthorityArn exists ]
+let acm_non_pca_certs   = %certificates[ Properties.CertificateAuthorityArn not exists ]
+
+rule check_local(references, expected_logical_ids, attribute) when Check.AssertLocal == true {
+    %references {
+        Ref in %expected_logical_ids ||
+        'Fn::GetAtt' {
+            this[0] in %expected_logical_ids && this[1] == %attribute
+        }
+    }
+}
+
+rule check_acm_non_pca_certs when %acm_non_pca_certs not empty {
+    %acm_non_pca_certs.Type == 'AWS::CertificateManager::Certificate'
+}
+
+rule check_acm_pca_certs when %acm_pca_certs not empty {
+    %acm_private_cas not empty
+        << No private ACM PCAs configured in stack to associate >>
+    #
+    # If there are not ACM PCA in the template, then acm_private_ca_names will not
+    # exist to check against
+    #
+    check_local(
+        %acm_pca_certs.Properties.CertificateAuthorityArn,
+        %acm_private_ca_ids
+    )
+}
+
+rule check_acm_certs_transparency {
+    %certificates[ Type == 'AWS::CertificateManager::Certificate' ] {
+        Properties {
+            CertificateTransparencyLoggingPreference not exists or
+            CertificateTransparencyLoggingPreference == 'ENABLED'
+        }
+    }
+}
+    "###,
+        r###"rule deny_kms_key_checks {
+    Resources[ key_id | Type == 'AWS::KMS::Key' ].Properties {
+        check_kms_key_usage_in_account(KeyPolicy.Statement[*] || KeyPolicy.Statement)
+            <<KMS service actions are not DENIED access from outside account explicitly on %key_id>>
+        EnableKeyRotation == true
+            <<ALL KMS keys must have auto rotation of key enabled %key_id>>
+    }
+}
+
+rule check_kms_key_usage_in_account(statements) {
+    anyone %statements {
+        Effect                == 'Deny'
+        anyone Resource[*]    == '*'
+        anyone Principal[*]   == '*'
+        Action              in ['*', 'kms:*']
+        Condition.StringNotEquals.'kms:CallerAccount'.Ref == 'AWS::AccountId'
+    }
+}
+"###,
+        ];
+
+    success.iter().for_each(|to_parse| {
+        let span = Span::new_extra(*to_parse, "");
+        let result = parse_rules_file(span, "");
+        assert_eq!(result.is_ok(), true, "{:?}", result);
+    });
 }

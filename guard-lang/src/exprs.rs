@@ -11,7 +11,6 @@ pub enum Expr {
     ///
     File(Box<FileExpr>),
 
-
     /// Rule expression in the language. Rules can be parameterized
     /// to create reusable rules. Rules are defined using the general form
     ///
@@ -24,6 +23,26 @@ pub enum Expr {
     ///    Resources[ Types == 'AWS::S3::Bucket' ].Properties.BucketName == /^MyCompany/
     /// }
     Rule(Box<RuleExpr>),
+
+    /// RuleClause used as a part of referring to named rule as a part a
+    /// conjunction. This allows to write complex rules that can combined
+    /// together a major objects. As an example
+    ///
+    /// # Examples
+    ///
+    /// rule encryption_at_rest {
+    ///     s3_encryption_at_rest
+    ///     ebs_volume_encryption_at_rest
+    ///     ddb_encryption_at_rest
+    ///     databases_encryption_at_rest
+    /// }
+    ///
+    /// rule s3_encryption_at_rest {
+    ///     s3_encrypt_server_side or s3_encrypt_with_kms
+    ///     s3_policy_allow_only_encrypted_puts
+    /// }
+    ///
+    RuleClause(Box<RuleClauseExpr>),
 
     /// Let assignment statement for variable
     /// # Examples
@@ -204,7 +223,9 @@ pub enum UnaryOperator {
     IsNotRegex,
     Not,
     Any,
-    AnyOne
+    AnyOne,
+    Keys,
+    Indices
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -261,6 +282,38 @@ impl RuleExpr {
     pub fn location(&self) -> &Location { &self.location }
     #[inline]
     pub fn parameters(&self) -> Option<&[Expr]> { self.parameters.as_ref().map(Vec::as_slice) }
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuleClauseExpr {
+    pub(crate) name: String,
+    pub(crate) parameters: Option<Vec<Expr>>,
+    pub(crate) location: Location,
+    pub(crate) message: Option<String>,
+}
+
+impl RuleClauseExpr {
+    pub fn new(name: String,
+               parameters: Option<Vec<Expr>>,
+               location: Location,
+               message: Option<String>) -> Self {
+        RuleClauseExpr {
+            name,
+            parameters,
+            location,
+            message
+        }
+    }
+
+    #[inline]
+    pub fn name(&self) -> &str { &self.name }
+    #[inline]
+    pub fn location(&self) -> &Location { &self.location }
+    #[inline]
+    pub fn parameters(&self) -> Option<&[Expr]> { self.parameters.as_ref().map(Vec::as_slice) }
+    #[inline]
+    pub fn message(&self) -> Option<&str> { self.message.as_ref().map(String::as_str) }
+
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -343,6 +396,8 @@ impl BlockClauseExpr {
     pub fn location(&self) -> &Location { &self.location }
     #[inline]
     pub fn clause(&self) -> &BlockExpr { &self.block }
+    #[inline]
+    pub fn message(&self) -> Option<&str> { self.message.as_ref().map(String::as_str) }
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -405,13 +460,15 @@ impl BinaryExpr {
         BinaryExpr { lhs, rhs, operator, location, message }
     }
 
-
     #[inline]
     pub fn lhs(&self) -> &Expr { &self.lhs }
     #[inline]
     pub fn rhs(&self) -> &Expr { &self.rhs }
     #[inline]
     pub fn location(&self) -> &Location { &self.location }
+    #[inline]
+    pub fn message(&self) -> Option<&str> { self.message.as_ref().map(String::as_str) }
+
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -433,9 +490,13 @@ impl UnaryExpr {
 
     #[inline]
     pub fn op(&self) -> UnaryOperator { self.operator }
-
     #[inline]
     pub fn expr(&self) -> &Expr { &self.expr }
+    #[inline]
+    pub fn message(&self) -> Option<&str> { self.message.as_ref().map(String::as_str) }
+    #[inline]
+    pub fn location(&self) -> &Location { &self.location }
+
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -624,6 +685,7 @@ impl Expr {
         match self {
             Expr::File(value_expr) => visitor.visit_file(self, value_expr),
             Expr::Rule(value_expr) => visitor.visit_rule(self, value_expr),
+            Expr::RuleClause(value_expr) => visitor.visit_rule_clause(self, value_expr),
             Expr::Let(value_expr) => visitor.visit_let(self, value_expr),
             Expr::When(value_expr) => visitor.visit_when(self, value_expr),
             Expr::Select(value_expr) => visitor.visit_select(self, value_expr),

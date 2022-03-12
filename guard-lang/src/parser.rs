@@ -13,7 +13,7 @@ use nom::bytes::complete::{
     take_while,
     take,
 };
-use nom::character::complete::{char, anychar, multispace1, digit1, one_of, alpha1, newline};
+use nom::character::complete::{char, anychar, multispace1, digit1, one_of, alpha1, newline, space0};
 use nom::combinator::{map, value, opt, cut, recognize, peek, };
 use nom::error::{
     context,
@@ -472,8 +472,7 @@ where
 {
     move |input: Span| {
         let (input, _) = zero_or_more_ws_or_comment(input)?;
-        let (input, _ign) = parser(input)?;
-        zero_or_more_ws_or_comment(input).map(|(i, _)| (i, ()))
+        value((), |i| parser(i))(input)
     }
 }
 
@@ -562,34 +561,39 @@ fn parse_query_simple_segment(input: Span) -> IResult<Span, Expr> {
     )(input)
 }
 
+fn var_block_name(input: Span) -> IResult<Span, (String, bool)> {
+    tuple((
+        parse_name,
+        alt((
+            map(strip_comments_space(char('|')), |_| true),
+            map(peek(parse_end_braces), |_| false)
+        ))))(input)
+}
+
 fn parse_var_block(input: Span) -> IResult<Span, (Expr, Option<Expr>)> {
     let location = Location::new(input.location_line(), input.get_column());
-    match parse_name(input) {
-        Err(nom::Err::Error(_)) => {
+    let (input, var_block) = opt(var_block_name)(input)?;
+    match var_block {
+        None =>
             map(
                 parse_block_inner_expr,
                 |b| (Expr::Filter(Box::new(b)), None)
-            )(input)
-        },
+            )(input),
 
+        Some((variable, false)) => Ok((
+            input,
+            (Expr::Variable(Box::new(StringExpr::new(variable, location))), None)
+        )),
 
-        Ok((input, variable)) => {
-            let (input, blk) = opt(
-                strip_comments_space(preceded(char('|'), parse_block_inner_expr)))(input)?;
-            match blk {
-                Some(blk) =>
-                    Ok((input,
-                       (Expr::Variable(Box::new(StringExpr::new(variable, location))),
-                        Some(Expr::Filter(Box::new(blk))))
-                    )),
-                None =>
-                    Ok((input,
-                        (Expr::Variable(Box::new(StringExpr::new(variable, location))), None)
-                       )),
-            }
+        Some((variable, true)) => {
+            let (input, blk) = map(
+                parse_block_inner_expr,
+                |b| Expr::Filter(Box::new(b))
+            )(input)?;
+            Ok((input,
+                (Expr::Variable(Box::new(StringExpr::new(variable, location))),
+                 Some(blk))))
         }
-
-        Err(e) => return Err(e)
     }
 }
 
@@ -632,7 +636,7 @@ where
     let location = Location::new(input.location_line(), input.get_column());
     let mut segments = Vec::with_capacity(4);
     let (input, _) = query_segment(
-        alt((var_name, parse_variable_reference)),
+        alt((var_name, parse_variable_reference, parse_string)),
         |i| filter(i),
         input,
         &mut segments
@@ -675,6 +679,7 @@ fn let_query_or_value(input: Span) -> IResult<Span, Expr> {
     strip_comments_space(
         alt((
             parse_value,
+            keys_or_indices_unary_expr(parse_assignment_query),
             parse_assignment_query,
         ))
     )(input)
@@ -775,6 +780,7 @@ fn message_doc(input: Span) -> IResult<Span, String> {
             (split.0, (*split.1.fragment()).to_string())
         }
     };
+    let (input, _end_tag) = cut(tag(">>"))(input)?;
     Ok((input, message))
 }
 
@@ -831,16 +837,39 @@ fn unary_cmp_operator(input: Span) -> IResult<Span, UnaryOperator> {
     )))(input)
 }
 
-fn unary_expr(input: Span) -> IResult<Span, Expr> {
+fn keys_or_indices(input: Span) -> IResult<Span, UnaryOperator> {
+    alt((
+        value(UnaryOperator::Keys, strip_comments_trailing_space(alt((tag("keys"), tag("KEYS"))))),
+        value(UnaryOperator::Indices, strip_comments_trailing_space(alt((tag("indices"), tag("INDICES"))))),
+    ))(input)
+}
+
+fn keys_or_indices_unary_expr<P>(mut parser: P) -> impl FnMut(Span) -> IResult<Span, Expr>
+where
+    P: FnMut(Span) -> IResult<Span, Expr>
+{
+    move |input: Span| {
+        let location = Location::new(input.location_line(), input.get_column());
+        let (input, keys_or_indices) = keys_or_indices(input)?;
+        let (input, expr) = parser(input)?;
+        Ok((input, Expr::UnaryOperation(Box::new(UnaryExpr::new(keys_or_indices, expr, location)))))
+    }
+}
+
+fn unary_post_bool_expr(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, (expr, operator)) = tuple((
         query_or_value,
-        cut(unary_cmp_operator),
+        unary_cmp_operator,
     ))(input)?;
     let (input, message_doc) = strip_comments_space(opt(alt((here_doc, message_doc))))(input)?;
     Ok((
         input,
         Expr::UnaryOperation(Box::new(UnaryExpr::new_with_msg(operator, expr, location, message_doc)))))
+}
+
+fn unary_expr(input: Span) -> IResult<Span, Expr> {
+    alt((keys_or_indices_unary_expr(query_or_value), unary_post_bool_expr))(input)
 }
 
 fn anyone(input: Span) -> IResult<Span, UnaryOperator> {
@@ -872,9 +901,16 @@ fn parse_block_inner_expr(input: Span) -> IResult<Span, BlockExpr> {
         ))(next);
 
         match result {
-            Err(nom::Err::Error(_)) => return Ok((next, BlockExpr {
-                assignments, location, clause: reduce_ands_ors(ands_exprs, BinaryOperator::And)
-            })),
+            Err(nom::Err::Error(pe)) => {
+                if ands_exprs.is_empty() {
+                    return Err(nom::Err::Failure(ParseError::new(pe.get_location().clone(),
+                        "There are no conjunctions specified".to_string()
+                    )))
+                }
+                return Ok((next, BlockExpr {
+                    assignments, location, clause: reduce_ands_ors(ands_exprs, BinaryOperator::And)
+                }))
+            },
 
             Ok((input, _)) => {
                 next = input;
@@ -914,6 +950,65 @@ fn and_operator(input: Span) -> IResult<Span, BinaryOperator> {
     )(input)
 }
 
+fn parse_rule_parameter(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, expr) = preceded(
+        zero_or_more_ws_or_comment, query_or_value)(input)?;
+    let (input, alt_value) = opt(preceded(or_operator, query_or_value))(input)?;
+    match alt_value {
+        Some(alternative) => Ok((input, Expr::BinaryOperation(
+            Box::new(BinaryExpr::new(
+                BinaryOperator::Or,
+                expr,
+                alternative,
+                location
+            ))
+        ))),
+        None => Ok((input, expr))
+    }
+}
+
+fn parse_rule_clause_expr(input: Span) -> IResult<Span, Expr> {
+    let location = Location::new(input.location_line(), input.get_column());
+    let (input, name) = preceded(zero_or_more_ws_or_comment,parse_name)(input)?;
+    let (input, parameters) = opt(
+        preceded(zero_or_more_ws_or_comment,
+                 parse_parameters(parse_rule_parameter)))(input)?;
+    let (input, message) = opt(preceded(zero_or_more_ws_or_comment, message_doc))(input)?;
+    match message {
+        Some(message) => {
+            Ok((input, Expr::RuleClause(Box::new(
+                RuleClauseExpr::new(name, parameters, location, Some(message))))))
+        },
+        None => {
+            //
+            // If there is no message_doc, then is has to be followed up with or_operator, inline and
+            // comment or newline or is enclosed inside group (), {}, or was the end of when condtio
+            //
+            if input.input_len() > 0 {
+                let _ = peek(alt((
+                    // part of OR / AND operations
+                    value((), or_operator),
+                    value((), and_operator),
+
+                    // Has an implicit AND specified
+                    value((), comment2),
+                    value((), preceded(space0, newline)),
+
+                    // Was a part of Group operations either inside ()
+                    value((), parse_end_parenthesis),
+                    //value((), parse_end_bracket),
+
+                    // Was end of a when condition and being of the block
+                    value((), parse_start_bracket),
+                )))(input)?;
+            }
+            Ok((input, Expr::RuleClause(Box::new(
+                RuleClauseExpr::new(name, parameters, location, None)))))
+        }
+    }
+}
+
 fn group_operations(input: Span) -> IResult<Span, Expr> {
     let (input, _parens) = strip_comments_space(char('('))(input)?;
     let (input, expr) =  parse_and_conjunction(input)?;
@@ -921,72 +1016,100 @@ fn group_operations(input: Span) -> IResult<Span, Expr> {
     Ok((input, expr))
 }
 
+fn parse_unary_binary_or_block_expr2<'a, P>(mut parser: P) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
+where
+    P: FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
+{
+    move |input: Span| {
+        let location = Location::new(input.location_line(), input.get_column());
+        let (input, any) = opt(anyone)(input)?;
+        let (input, expr) = parser(input)?;
+        let expr = match any {
+            Some(op) => {
+                Expr::UnaryOperation(Box::new(UnaryExpr::new(op, expr, location)))
+            },
+            None => expr,
+        };
+        Ok((input, expr))
+    }
+}
+
 fn parse_unary_binary_or_block_expr(input: Span) -> IResult<Span, Expr> {
-    let location = Location::new(input.location_line(), input.get_column());
-    let (input, any) = opt(anyone)(input)?;
-    let (input, expr) = strip_comments_space( alt((
-        parse_when_block_expr,
-        parse_query_block_expr,
-        parse_binary_bool_expr,
-        parse_unary_bool_expr)
-    ))(input)?;
-    let expr = match any {
-        Some(op) => {
-            Expr::UnaryOperation(Box::new(UnaryExpr::new(op, expr, location)))
-        },
-        None => expr,
-    };
-    Ok((input, expr))
+    parse_unary_binary_or_block_expr2(
+        alt((
+            strip_comments_space( alt((
+                parse_when_block_expr,
+                parse_query_block_expr,
+                parse_binary_bool_expr,
+                parse_unary_bool_expr,
+            ))),
+            parse_rule_clause_expr,
+        )))(input)
+
+}
+
+fn parse_disjunction_expr2<'a, P>(mut parser: P) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
+where
+    P: FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
+{
+    move |input: Span| {
+        let (input, expr) = parser(input)?;
+        let mut ors = VecDeque::with_capacity(4);
+        ors.push_back(expr);
+        let mut next = input;
+        loop {
+            match or_operator(next) {
+                Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(ors, BinaryOperator::Or))),
+                Ok((span, _)) => {
+                    let (span, expr) = cut(|i| parser(i))(span)?;
+                    ors.push_back(expr);
+                    next = span;
+                },
+                Err(e) => return Err(e)
+            }
+        }
+    }
 }
 
 fn parse_disjunction_expr(input: Span) -> IResult<Span, Expr> {
-    let (input, expr) = alt((
-        group_operations,
-        parse_unary_binary_or_block_expr
-    ))(input)?;
-    let mut ors = VecDeque::with_capacity(4);
-    ors.push_back(expr);
-    let mut next = input;
-    loop {
-        match or_operator(next) {
-            Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(ors, BinaryOperator::Or))),
-            Ok((span, _)) => {
-                let (span, expr) = cut(
-                    alt((
-                        group_operations,
-                        parse_unary_binary_or_block_expr
-                    )))(span)?;
-                ors.push_back(expr);
-                next = span;
-            },
-            Err(e) => return Err(e)
+    parse_disjunction_expr2(
+        alt((
+            group_operations,
+            parse_unary_binary_or_block_expr
+    )))(input)
+}
+
+fn parse_and_conjunction2<'a, P>(mut parser: P) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
+where
+    P: FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
+{
+    move |input: Span| {
+        let (input, not) = opt(not)(input)?;
+        let (input, expr) = parser(input)?;
+        let mut ands = VecDeque::with_capacity(4);
+        ands.push_back(expr);
+        let mut next = input;
+        loop {
+            //
+            // We reached here because we either hit an inline and_operator or
+            // disjunction was done without or_operator joining clauses, which leads to
+            // an implicit AND. We therefore only optional consume the inline and_operator
+            // else we hit an implicit AND with \r or \n
+            //
+            match preceded(opt(and_operator), |i| parser(i))(next) {
+                Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(ands, BinaryOperator::And))),
+                Ok((span, expr)) => {
+                    ands.push_back(expr);
+                    next = span;
+                },
+                Err(e) => return Err(e)
+            }
         }
     }
 }
 
 fn parse_and_conjunction(input: Span) -> IResult<Span, Expr> {
-    let (input, not) = opt(not)(input)?;
-    let (input, expr) = parse_disjunction_expr(input)?;
-    let mut ands = VecDeque::with_capacity(4);
-    ands.push_back(expr);
-    let mut next = input;
-    loop {
-        //
-        // We reached here because we either hit an inline and_operator or
-        // disjunction was done without or_operator joining clauses, which leads to
-        // an implicit AND. We therefore only optional consume the inline and_operator
-        // else we hit an implicit AND with \r or \n
-        //
-        match preceded( opt(and_operator), parse_disjunction_expr)(next) {
-            Err(nom::Err::Error(_)) => return Ok((next, reduce_ands_ors(ands, BinaryOperator::And))),
-            Ok((span, expr)) => {
-                ands.push_back(expr);
-                next = span;
-            },
-            Err(e) => return Err(e)
-        }
-    }
-
+    parse_and_conjunction2(parse_disjunction_expr)(input)
 }
 
 fn parse_query_block_expr(input: Span) -> IResult<Span, Expr> {
@@ -1005,13 +1128,41 @@ fn parse_block(input: Span) -> IResult<Span, BlockExpr> {
     Ok((input, block))
 }
 
+fn parse_when_cond_block_syntax(input: Span) -> IResult<Span, Expr> {
+    let (input, _open) = parse_start_braces(input)?;
+    let (input, expr) = cut(
+        map(parse_block_inner_expr, |m| Expr::Filter(Box::new(m))))
+        (input)?;
+    let (input, _end) = cut(parse_end_braces)(input)?;
+    Ok((input, expr))
+}
+
+
+fn parse_when_cond_syntax(input: Span) -> IResult<Span, Expr> {
+    strip_comments_space(parse_and_conjunction2(parse_disjunction_expr2(parse_when_cond_expr)))(input)
+}
+
+fn parse_when_cond_expr(input: Span) -> IResult<Span, Expr> {
+    parse_unary_binary_or_block_expr2(
+        alt((
+            strip_comments_space( alt((
+                group_operations,
+                parse_binary_bool_expr,
+                parse_unary_bool_expr,
+            ))),
+            parse_rule_clause_expr,
+        )))(input)
+}
+
 fn parse_when_block_expr(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, _when_keyword) = strip_comments_trailing_space(alt((
         tag("when"),
         tag("WHEN"),
     )))(input)?;
-    let (input, expr) = strip_comments_space(parse_and_conjunction)(input)?;
+    let (input, expr) = alt((
+        parse_when_cond_block_syntax,
+        parse_when_cond_syntax))(input)?;
     let (input, block) = parse_block(input)?;
     Ok((input, Expr::When(Box::new(WhenExpr::new(expr, block, location)))))
 }
@@ -1024,29 +1175,40 @@ fn parse_end_parenthesis(input: Span) -> IResult<Span, ()> {
     empty_value(char(')'))(input)
 }
 
-fn parse_rule_parameter_names(input: Span) -> IResult<Span, Vec<Expr>> {
-    let (input, _start_parens) = parse_start_parenthesis(input)?;
-    let mut names = Vec::new();
-    let mut span = input;
-    loop {
-        let (left, name) = cut(var_name)(span)?;
-        names.push(name);
-        span = left;
-        match parse_value_separator(span) {
-            Ok((left, _)) => {
-                if let Ok((left, _)) = parse_end_parenthesis(left) {
+
+fn parse_parameters<'a, P>(mut parser: P) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, Vec<Expr>>
+where
+    P: FnMut(Span<'a>) -> IResult<Span<'a>, Expr>
+{
+    move |input: Span| {
+        let (input, _start_parens) = parse_start_parenthesis(input)?;
+        let mut names = Vec::new();
+        let mut span = input;
+        loop {
+            let (left, name) = cut(|i| parser(i))(span)?;
+            names.push(name);
+            span = left;
+            match parse_value_separator(span) {
+                Ok((left, _)) => {
+                    if let Ok((left, _)) = parse_end_parenthesis(left) {
+                        return Ok((left, names))
+                    }
+                    span = left;
+                },
+
+                Err(nom::Err::Error(_)) => {
+                    let (left, _end) = cut(parse_end_parenthesis)(span)?;
                     return Ok((left, names))
-                }
-            },
+                },
 
-            Err(nom::Err::Error(_)) => {
-                let (left, _end) = cut(parse_end_parenthesis)(span)?;
-                return Ok((left, names))
-            },
-
-            Err(rest) => return Err(rest)
+                Err(rest) => return Err(rest)
+            }
         }
     }
+}
+
+fn parse_rule_parameter_names(input: Span) -> IResult<Span, Vec<Expr>> {
+    parse_parameters(preceded(zero_or_more_ws_or_comment,var_name))(input)
 }
 
 fn parse_rule_expr(input: Span) -> IResult<Span, Expr> {

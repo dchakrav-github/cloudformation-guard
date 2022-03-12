@@ -10,7 +10,7 @@ file            = *(
  * that allows on to first evaluated the left hand side expression and if that fails
  * assigns right hand side expression
  */
-let-expr        = let 1*OCS var_name 1*OCS assign *OCS
+let-expr        = OCS* let 1*OCS var_name 1*OCS assign *OCS
                   ( let-query | value ) [1*OCS or-operator 1*OCS (let-query | value)]
 
 /* "let" keyword for assignment statements */
@@ -81,22 +81,21 @@ NOT                 = not 1*OCS     /           ; not<1*space/comment>
 
 expr                = group-expr    /
                       unary-expr    /
-                      binary-expr
+                      binary-expr   /
+                      rule-expr
 
 group-expr          = *OCS open-parenthesis *OCS and-conjunction *OCS close-parenthesis
+unary-expr          = prefix-unary-expr / suffix-unary-expr
+binary-expr         = [prefix-unary-operator 1*OCS] query-or-value *OCS binary-operator *OCS query-or-value
+rule-expr           = var-name [*OCS open-parenthesis *OCS 1*parameters *OCS
+                                ((value-separator *OCS close-parenthesis) / close-parenthesis)]
 
+value-separator     =" %x44                     ; ,
+parameters          = parameter *(*OCS value-separator *OCS parameter)
+parameter           = query-or-value [*OCS OR *OCS query-or-value]
 
-/* Query */
-query               = query-segement [ *OCS decimal-dot *OCS query-segment ]
-query-segment       = property-name [ *OCS open-braces *OCS query-filter-segment *OCS close-braces ]
-
-query-filter-segment    = let-filter-expr   /
-                          var-name          /                               ; variable capture
-                          [var-name *OCS vertical-bar *OCS] 1*block-expt    ;
-
-/* Unary operations */
-unary-expr          = prefix-unary-expr /
-                      suffix-unary-expr
+/* Binary operations */
+binary-operator     = ;
 
 
 prefix-unary-expr   = prefix-unary-operation 1*OCS query [ *OCS message-doc ]
@@ -114,12 +113,15 @@ postfix-unary-operator  = [NOT] exists          /
 prefix-unary-operator   = any                   /   ; zero or more match
                           anyone                /   ;
                           atleast-one           /   ; one or more match
-                          some                      ;
+                          some                  /   ;
+                          keys                  /   ; keys for map
+                          indices                   ; indices for a collection
 
 any                     = "any" / "ANY"
 anyone                  = "anyone" / "ANYONE"
 atleast-one             = "atleast-one" / "ATLEAST-ONE"
 some                    = "some"
+keys                     = "keys" / "KEYS"
 
 is-string           = "IS_STRING"   /   "is_string"
 is-integer          = "IS_INTEGER"  /   "is_integer"
@@ -128,9 +130,13 @@ is-bool             = "IS_BOOL"     /   "is_bool"
 is-map              = "IS_MAP"      /   "is_map"
 is-list             = "IS_LIST"     /   "is_list"
 
-/* Binary operations */
-binary-expr         = [prefix-unary-operator 1*OCS] query-or-value *OCS binary-operator *OCS query-or-value
-binary-operator     = ;
+/* Query */
+query               = query-segement [ *OCS decimal-dot *OCS query-segment ]
+query-segment       = property-name [ *OCS open-braces *OCS query-filter-segment *OCS close-braces ]
+
+query-filter-segment    = let-filter-expr   /
+                          var-name          /                               ; variable capture
+                          [var-name *OCS vertical-bar *OCS] 1*block-expt    ;
 
 
 /* Variable name
