@@ -1,0 +1,18 @@
+[package]
+name = "guard-eval"
+version = "2.1.0"
+authors = ["diwakar <dchakrav-github@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+indexmap = { version = "1.6.0", features = ["serde-1"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.79"
+guard-lang = { path = "../guard-lang" }
+walkdir = "2.3.2"
+yaml-rust = {git = "https://github.com/dchakrav-github/yaml-rust"}
+
+[dev-dependencies]
+anyhow = "1.0.56"

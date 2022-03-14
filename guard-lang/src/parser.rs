@@ -520,7 +520,7 @@ fn parse_array(input: Span) -> IResult<Span, Expr> {
 //
 // VALUE        ::= SCALAR | MAP | ARRAY | NULL
 //
-fn parse_value(input: Span) -> IResult<Span, Expr> {
+pub(crate) fn parse_value(input: Span) -> IResult<Span, Expr> {
     strip_comments_space(alt((
         parse_scalar_value,
         parse_map,
@@ -1261,7 +1261,7 @@ fn parse_rule_expr(input: Span) -> IResult<Span, Expr> {
     }
 }
 
-pub fn parse_rules_file<'a>(input: Span<'a>, name: &str) -> IResult<Span<'a>, Expr> {
+pub(crate) fn parse_rules_file<'a>(input: Span<'a>, name: &str) -> IResult<Span<'a>, Expr> {
     let mut assignments = Vec::new();
     let mut rules = Vec::new();
     let mut span = input;

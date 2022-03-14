@@ -33,7 +33,7 @@ pub struct RangeType<T: PartialOrd> {
 /// Span represent a span of content of a Guard File when processing it
 /// It tracks the location, line and colume number in the bytes stream
 /// for the file and used to create the [Location] instances
-pub(crate) type Span<'a> = LocatedSpan<&'a str, &'a str>;
+pub type Span<'a> = LocatedSpan<&'a str, &'a str>;
 
 ///
 /// Errors

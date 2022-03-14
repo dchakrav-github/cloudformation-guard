@@ -3,5 +3,6 @@
 members = [
     "guard",
     "guard-lambda",
+    "guard-eval",
     "guard-lang"
 ]

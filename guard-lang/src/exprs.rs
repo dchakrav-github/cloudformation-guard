@@ -230,10 +230,10 @@ pub enum UnaryOperator {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileExpr {
-    pub(crate) name: String,
-    pub(crate) assignments: Vec<LetExpr>,
-    pub(crate) rules: Vec<RuleExpr>,
-    pub(crate) location: Location,
+    pub name: String,
+    pub assignments: Vec<LetExpr>,
+    pub rules: Vec<RuleExpr>,
+    pub location: Location,
 }
 
 impl FileExpr {
@@ -251,11 +251,11 @@ impl FileExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuleExpr {
-    pub(crate) name: String,
-    pub(crate) when: Option<Expr>,
-    pub(crate) parameters: Option<Vec<Expr>>,
-    pub(crate) block: BlockExpr,
-    pub(crate) location: Location,
+    pub name: String,
+    pub when: Option<Expr>,
+    pub parameters: Option<Vec<Expr>>,
+    pub block: BlockExpr,
+    pub location: Location,
 }
 
 impl RuleExpr {
@@ -286,10 +286,10 @@ impl RuleExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuleClauseExpr {
-    pub(crate) name: String,
-    pub(crate) parameters: Option<Vec<Expr>>,
-    pub(crate) location: Location,
-    pub(crate) message: Option<String>,
+    pub name: String,
+    pub parameters: Option<Vec<Expr>>,
+    pub location: Location,
+    pub message: Option<String>,
 }
 
 impl RuleClauseExpr {
@@ -318,9 +318,9 @@ impl RuleClauseExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WhenExpr {
-    pub(crate) when: Expr,
-    pub(crate) block: BlockExpr,
-    pub(crate) location: Location,
+    pub when: Expr,
+    pub block: BlockExpr,
+    pub location: Location,
 }
 
 impl WhenExpr {
@@ -338,8 +338,8 @@ impl WhenExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArrayExpr {
-    pub(crate) elements: Vec<Expr>,
-    pub(crate) location: Location,
+    pub elements: Vec<Expr>,
+    pub location: Location,
 }
 
 impl ArrayExpr {
@@ -355,9 +355,9 @@ impl ArrayExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockExpr {
-    pub(crate) assignments: Vec<Expr>,
-    pub(crate) clause: Expr,
-    pub(crate) location: Location,
+    pub assignments: Vec<Expr>,
+    pub clause: Expr,
+    pub location: Location,
 }
 
 impl BlockExpr {
@@ -375,10 +375,10 @@ impl BlockExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockClauseExpr {
-   pub(crate) select: QueryExpr,
-   pub(crate) block: BlockExpr,
-   pub(crate) message: Option<String>,
-   pub(crate) location: Location,
+   pub select: QueryExpr,
+   pub block: BlockExpr,
+   pub message: Option<String>,
+   pub location: Location,
 }
 
 impl BlockClauseExpr {
@@ -402,10 +402,10 @@ impl BlockClauseExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LetExpr {
-   pub(crate) key: Option<String>,
-   pub(crate) name: String,
-   pub(crate) value: Expr,
-   pub(crate) location: Location,
+   pub key: Option<String>,
+   pub name: String,
+   pub value: Expr,
+   pub location: Location,
 }
 
 impl LetExpr {
@@ -427,8 +427,8 @@ impl LetExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryExpr {
-   pub(crate) parts: Vec<Expr>,
-   pub(crate) location: Location,
+   pub parts: Vec<Expr>,
+   pub location: Location,
 }
 
 impl QueryExpr {
@@ -444,11 +444,11 @@ impl QueryExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinaryExpr {
-    pub(crate) operator: BinaryOperator,
-    pub(crate) lhs: Expr,
-    pub(crate) rhs: Expr,
-    pub(crate) message: Option<String>,
-    pub(crate) location: Location,
+    pub operator: BinaryOperator,
+    pub lhs: Expr,
+    pub rhs: Expr,
+    pub message: Option<String>,
+    pub location: Location,
 }
 
 impl BinaryExpr {
@@ -473,10 +473,10 @@ impl BinaryExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnaryExpr {
-    pub(crate) operator: UnaryOperator,
-    pub(crate) expr: Expr,
-    pub(crate) message: Option<String>,
-    pub(crate) location: Location,
+    pub operator: UnaryOperator,
+    pub expr: Expr,
+    pub message: Option<String>,
+    pub location: Location,
 }
 
 impl UnaryExpr {
@@ -501,8 +501,8 @@ impl UnaryExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MapExpr {
-    pub(crate) entries: indexmap::IndexMap<StringExpr, Expr>,
-    pub(crate) location: Location,
+    pub entries: indexmap::IndexMap<StringExpr, Expr>,
+    pub location: Location,
 }
 
 impl MapExpr {
@@ -519,8 +519,8 @@ impl MapExpr {
 
 #[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StringExpr {
-    pub(crate) value: String,
-    pub(crate) location: Location
+    pub value: String,
+    pub location: Location
 }
 
 impl StringExpr {
@@ -536,8 +536,8 @@ impl StringExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegexExpr {
-    pub(crate) value: String,
-    pub(crate) location: Location
+    pub value: String,
+    pub location: Location
 }
 
 impl RegexExpr {
@@ -554,8 +554,8 @@ impl RegexExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoolExpr {
-    pub(crate) value: bool,
-    pub(crate) location: Location
+    pub value: bool,
+    pub location: Location
 }
 
 impl BoolExpr {
@@ -571,8 +571,8 @@ impl BoolExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntExpr {
-    pub(crate) value: i64,
-    pub(crate) location: Location
+    pub value: i64,
+    pub location: Location
 }
 
 impl IntExpr {
@@ -588,8 +588,8 @@ impl IntExpr {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FloatExpr {
-    pub(crate) value: f64,
-    pub(crate) location: Location
+    pub value: f64,
+    pub location: Location
 }
 
 impl FloatExpr {
@@ -617,8 +617,8 @@ impl Eq for FloatExpr {}
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CharExpr {
-    pub(crate) value: char,
-    pub(crate) location: Location
+    pub value: char,
+    pub location: Location
 }
 
 impl CharExpr {
@@ -635,8 +635,8 @@ impl CharExpr {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RangeIntExpr {
-    pub(crate) value: RangeType<i64>,
-    pub(crate) location: Location
+    pub value: RangeType<i64>,
+    pub location: Location
 }
 
 impl RangeIntExpr {
@@ -653,8 +653,8 @@ impl RangeIntExpr {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RangeFloatExpr {
-    pub(crate) value: RangeType<f64>,
-    pub(crate) location: Location
+    pub value: RangeType<f64>,
+    pub location: Location
 }
 
 impl RangeFloatExpr {
@@ -708,5 +708,32 @@ impl Expr {
             Expr::Block(value_expr) => visitor.visit_block(self, value_expr),
         }
     }
-}
 
+    pub fn get_location(&self) -> &Location {
+        match self {
+            Expr::File(value_expr) => &value_expr.location,
+            Expr::Rule(value_expr) =>  &value_expr.location,
+            Expr::RuleClause(value_expr) => value_expr.location(),
+            Expr::Let(value_expr) => &value_expr.location,
+            Expr::When(value_expr) => &value_expr.location,
+            Expr::Select(value_expr) => &value_expr.location,
+            Expr::BinaryOperation(value_expr) => &value_expr.location,
+            Expr::UnaryOperation(value_expr) => &value_expr.location,
+            Expr::Array(value_expr) => &value_expr.location,
+            Expr::Map(value_expr) => &value_expr.location,
+            Expr::Null(value_expr) => &value_expr,
+            Expr::String(value_expr) => &value_expr.location,
+            Expr::Regex(value_expr) => &value_expr.location,
+            Expr::Char(value_expr) => &value_expr.location,
+            Expr::Bool(value_expr) => &value_expr.location,
+            Expr::Int(value_expr) => &value_expr.location,
+            Expr::Float(value_expr) => &value_expr.location,
+            Expr::RangeInt(value_expr) => &value_expr.location,
+            Expr::RangeFloat(value_expr) => &value_expr.location,
+            Expr::Filter(value_expr) => &value_expr.location,
+            Expr::Variable(value_expr) => &value_expr.location,
+            Expr::VariableReference(value_expr) => &value_expr.location,
+            Expr::Block(value_expr) => &value_expr.location,
+        }
+    }
+}
