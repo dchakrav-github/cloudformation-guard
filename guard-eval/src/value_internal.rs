@@ -260,7 +260,7 @@ impl StructureReader {
     }
 }
 
-pub(crate) fn read_from(from_reader: &str) -> Result<Value, EvaluationError> {
+pub(crate) fn read_from<'s, 'e>(from_reader: &'s str) -> Result<Value, EvaluationError<'e>> {
     let mut reader = StructureReader::new();
     let mut parser = Parser::new(from_reader.chars());
     match parser.load(&mut reader, false) {
@@ -321,6 +321,75 @@ impl TryFrom<Expr> for Value {
                 Ok(Value::Null(*n))
             },
 
+            Expr::RangeInt(r) => {
+                let r = *r;
+                Ok(Value::RangeInt(r.value, r.location))
+            },
+
+            Expr::RangeFloat(r) => {
+                let r = *r;
+                Ok(Value::RangeFloat(r.value, r.location))
+            }
+
+            rest => return Err(LangError::ParseError(guard_lang::ParseError::new(
+                rest.get_location().clone(),
+                format!("Unknown expression for JSON {:?}", rest)
+            )))
+        }
+    }
+}
+
+impl<'expr> TryFrom<&'expr Expr> for Value {
+    type Error = LangError;
+
+    fn try_from(value: &'expr Expr) -> std::result::Result<Self, Self::Error> {
+        match value {
+            Expr::Map(map) => {
+                let mut index = indexmap::IndexMap::new();
+                for (key, each) in &map.entries {
+                    index.insert((key.value.clone(), key.location.clone()), Value::try_from(each)?);
+                }
+                Ok(Value::Map(index, map.location.clone()))
+            },
+
+            Expr::Array(array) => {
+                let mut list = Vec::with_capacity(array.elements.len());
+                for each in &array.elements {
+                    list.push(Value::try_from(each)?);
+                }
+                Ok(Value::List(list, array.location.clone()))
+            },
+
+            Expr::String(string) => {
+                Ok(Value::String(string.value.clone(), string.location.clone()))
+            },
+
+            Expr::Int(int) => {
+                Ok(Value::Int(int.value, int.location.clone()))
+
+            },
+
+            Expr::Float(f) => {
+                Ok(Value::Float(f.value, f.location.clone()))
+            },
+
+            Expr::Bool(b) => {
+                Ok(Value::Bool(b.value, b.location.clone()))
+            },
+
+            Expr::Null(n) => {
+                Ok(Value::Null(n.as_ref().clone()))
+            },
+
+            Expr::RangeInt(r) => {
+                Ok(Value::RangeInt(r.value.clone(), r.location.clone()))
+            },
+
+            Expr::RangeFloat(r) => {
+                Ok(Value::RangeFloat(r.value.clone(), r.location.clone()))
+            }
+
+
             rest => return Err(LangError::ParseError(guard_lang::ParseError::new(
                 rest.get_location().clone(),
                 format!("Unknown expression for JSON {:?}", rest)
@@ -330,5 +399,7 @@ impl TryFrom<Expr> for Value {
 }
 
 #[cfg(test)]
-#[path = "value_internal_tests.rs"]
-mod value_internal_tests;
+mod yaml_parsing_tests;
+
+#[cfg(test)]
+mod json_parsing_tests;
