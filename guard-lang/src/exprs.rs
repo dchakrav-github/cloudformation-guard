@@ -5,7 +5,8 @@ use crate::types::{
 use serde::{Serialize, Deserialize};
 
 /// AST Expressions for Guard Language
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+//#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Expr {
     /// File that contains a list of rules that needs to be evaluated
     ///
@@ -228,7 +229,7 @@ pub enum UnaryOperator {
     Indices
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FileExpr {
     pub name: String,
     pub assignments: Vec<LetExpr>,
@@ -249,7 +250,7 @@ impl FileExpr {
     pub fn rules(&self) -> &[RuleExpr] { &self.rules }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RuleExpr {
     pub name: String,
     pub when: Option<Expr>,
@@ -284,7 +285,7 @@ impl RuleExpr {
     pub fn parameters(&self) -> Option<&[Expr]> { self.parameters.as_ref().map(Vec::as_slice) }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RuleClauseExpr {
     pub name: String,
     pub parameters: Option<Vec<Expr>>,
@@ -316,7 +317,7 @@ impl RuleClauseExpr {
 
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WhenExpr {
     pub when: Expr,
     pub block: BlockExpr,
@@ -336,7 +337,7 @@ impl WhenExpr {
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct ArrayExpr {
     pub elements: Vec<Expr>,
     pub location: Location,
@@ -353,7 +354,7 @@ impl ArrayExpr {
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct BlockExpr {
     pub assignments: Vec<Expr>,
     pub clause: Expr,
@@ -373,7 +374,7 @@ impl BlockExpr {
     pub fn clause(&self) -> &Expr { &self.clause }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct BlockClauseExpr {
    pub select: QueryExpr,
    pub block: BlockExpr,
@@ -400,7 +401,7 @@ impl BlockClauseExpr {
     pub fn message(&self) -> Option<&str> { self.message.as_ref().map(String::as_str) }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct LetExpr {
    pub key: Option<String>,
    pub name: String,
@@ -425,7 +426,7 @@ impl LetExpr {
     pub fn name(&self) -> &str { &self.name }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct QueryExpr {
    pub parts: Vec<Expr>,
    pub location: Location,
@@ -442,7 +443,7 @@ impl QueryExpr {
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct BinaryExpr {
     pub operator: BinaryOperator,
     pub lhs: Expr,
@@ -471,7 +472,7 @@ impl BinaryExpr {
 
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct UnaryExpr {
     pub operator: UnaryOperator,
     pub expr: Expr,
@@ -499,25 +500,25 @@ impl UnaryExpr {
 
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct MapExpr {
-    pub entries: indexmap::IndexMap<StringExpr, Expr>,
+    pub entries: indexmap::IndexMap<String, Expr>,
     pub location: Location,
 }
 
 impl MapExpr {
-    pub fn new(entries: indexmap::IndexMap<StringExpr, Expr>, location: Location) -> Self {
+    pub fn new(entries: indexmap::IndexMap<String, Expr>, location: Location) -> Self {
         MapExpr { entries, location }
     }
 
     #[inline]
-    pub fn entries(&self) -> &indexmap::IndexMap<StringExpr, Expr> { &self.entries }
+    pub fn entries(&self) -> &indexmap::IndexMap<String, Expr> { &self.entries }
 
     #[inline]
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug,  Hash, Serialize, Deserialize)]
 pub struct StringExpr {
     pub value: String,
     pub location: Location
@@ -534,7 +535,7 @@ impl StringExpr {
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct RegexExpr {
     pub value: String,
     pub location: Location
@@ -552,7 +553,7 @@ impl RegexExpr {
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct BoolExpr {
     pub value: bool,
     pub location: Location
@@ -569,7 +570,7 @@ impl BoolExpr {
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct IntExpr {
     pub value: i64,
     pub location: Location
@@ -615,7 +616,7 @@ impl PartialEq for FloatExpr {
 
 impl Eq for FloatExpr {}
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct CharExpr {
     pub value: char,
     pub location: Location
@@ -633,7 +634,7 @@ impl CharExpr {
     pub fn location(&self) -> &Location { &self.location }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug,  Serialize, Deserialize)]
 pub struct RangeIntExpr {
     pub value: RangeType<i64>,
     pub location: Location

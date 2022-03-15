@@ -445,7 +445,7 @@ fn parse_map(input: Span) -> IResult<Span, Expr> {
 
         span = left;
         if let Expr::String(key) = key {
-            map.insert(*key, value);
+            map.insert((*key).value, value);
         }
 
         match parse_value_separator(span) {

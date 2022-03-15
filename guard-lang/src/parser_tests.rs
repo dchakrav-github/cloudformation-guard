@@ -49,8 +49,12 @@ fn test_parse_bool() {
         .for_each(|span| {
             let result = parse_bool(span);
             assert_eq!(result.is_ok(), true);
-            assert_eq!(result.unwrap().1,
-                       Expr::Bool(Box::new(BoolExpr::new(true, Location::new(1, 1)))));
+            let expr = match result.unwrap().1 {
+                Expr::Bool(b) => *b,
+                _ => unreachable!()
+            };
+            assert_eq!(expr.value, true);
+            assert_eq!(expr.location, Location::new(1, 1));
         });
 
     let false_pass = [
@@ -63,8 +67,12 @@ fn test_parse_bool() {
         .for_each(|span| {
             let result = parse_bool(span);
             assert_eq!(result.is_ok(), true);
-            assert_eq!(result.unwrap().1,
-                       Expr::Bool(Box::new(BoolExpr::new(false, Location::new(1, 1)))));
+            let expr = match result.unwrap().1 {
+                Expr::Bool(b) => *b,
+                _ => unreachable!()
+            };
+            assert_eq!(expr.value, false);
+            assert_eq!(expr.location, Location::new(1, 1));
         });
 
     let failures = [
@@ -1234,8 +1242,8 @@ fn test_let_expr() {
             assert_eq!(value.entries.len(), 2);
             for each in value.entries.keys() {
                 assert_eq!(
-                    each.value == "hi" ||
-                    each.value == "bye",
+                    each == "hi" ||
+                    each == "bye",
                     true
                 );
             }

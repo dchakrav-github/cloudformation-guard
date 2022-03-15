@@ -1,4 +1,4 @@
-use std::fmt::Formatter;
+use std::fmt::{Formatter, Debug};
 use guard_lang::{Location, RangeType, LangError, Expr};
 use yaml_rust::ScanError;
 use std::path::PathBuf;
@@ -40,9 +40,9 @@ impl<'expr> std::error::Error for EvaluationError<'expr> {
 impl<'expr> std::fmt::Display for EvaluationError<'expr> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            EvaluationError::GuardFileParseError(p)  => p.fmt(f),
-            EvaluationError::DataParseError(p) => p.fmt(f),
-            EvaluationError::IoError(p)  => p.fmt(f),
+            EvaluationError::GuardFileParseError(p)  => std::fmt::Display::fmt(p, f),
+            EvaluationError::DataParseError(p) => std::fmt::Display::fmt(p, f),
+            EvaluationError::IoError(p)  => std::fmt::Display::fmt(p, f),
             EvaluationError::UnexpectedExpr(msg, expr) => {
                 write!(f, "Error {} Location {}, Expr {:?}", msg, expr.get_location(), *expr)
             }
@@ -90,7 +90,7 @@ pub enum Status {
     SKIP
 }
 
-pub trait EvalReporter<'value> {
+pub trait EvalReporter<'value> : Debug {
     fn report_missing_value(
         &mut self,
         until: &'value Value,
@@ -104,6 +104,7 @@ pub trait EvalReporter<'value> {
         status: Status) -> Result<(), EvaluationError>;
 }
 
+#[derive(Debug)]
 pub struct DataFile {
     pub file: PathBuf,
     pub root: Value,

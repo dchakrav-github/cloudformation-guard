@@ -1,10 +1,4 @@
-use crate::{
-    EvaluationError,
-    Value,
-    EvalReporter,
-    Status,
-    DataFiles
-};
+use crate::{EvaluationError, Value, EvalReporter, Status, DataFiles, DataFile};
 
 use guard_lang::{
     Expr,
@@ -92,6 +86,7 @@ impl<'v, 'r> ScopeHierarchy<'v, 'r> {
 }
 
 
+#[derive(Debug)]
 enum ValueType<'value> {
     SingleValue(&'value Value),
     QueryValues(Vec<&'value Value>),
@@ -99,8 +94,9 @@ enum ValueType<'value> {
     ComputedValue(Value),
 }
 
+#[derive(Debug)]
 struct Scope<'value, 'report> {
-    roots: &'value DataFiles,
+    roots: &'value Vec<DataFile>,
     variable_definitions: HashMap<&'value str, &'value LetExpr>,
     variables: HashMap<&'value str, ValueType<'value>>,
     reporter: &'report mut dyn EvalReporter<'value>
@@ -148,11 +144,14 @@ impl<'v, 'r> Visitor<'v> for ExtractVariableExprs<'v, 'r> {
 
     fn visit_any(self, expr: &'v Expr) -> Result<Self::Value, Self::Error> {
         Err(EvaluationError::UnexpectedExpr(
-            format!("When attempting extract assignment statements got unexpected Expr"),
+            format!("When attempting extract variable assignment statements got unexpected Expr"),
             expr
         ))
     }
 }
+
+#[cfg(test)]
+mod extract_variable_exprs_tests;
 
 struct AssignHandler<'c, 'v, 'r> {
     hierarchy: &'c mut ScopeHierarchy<'v, 'r>
@@ -195,7 +194,6 @@ impl<'v> Visitor<'v> for CheckValueLiteral {
         }
     }
 }
-
 
 impl<'c, 'v, 'r> Visitor<'v> for AssignHandler<'c, 'v, 'r> {
     type Value = ValueType<'v>;
