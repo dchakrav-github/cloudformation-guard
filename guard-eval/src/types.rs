@@ -80,7 +80,7 @@ pub enum Value {
     RangeFloat(RangeType<f64>, Location),
     Char(char, Location),
     List(Vec<Value>, Location),
-    Map(indexmap::IndexMap<(String, Location), Value>, Location),
+    Map(indexmap::IndexMap<String, Value>, Location),
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]

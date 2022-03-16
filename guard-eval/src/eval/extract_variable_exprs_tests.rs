@@ -155,10 +155,6 @@ rule check_kms_key_usage_in_account(statements) {
     let let_expr = *(scope.variable_definitions.get(
         "non_computed_literal").unwrap());
     assert_eq!(let_expr.value.accept(CheckValueLiteral{}).unwrap(), true);
-    if let Expr::Map(map) = let_expr {
-
-    }
-
 
     if let Expr::File(file) = &rules_file {
         assert_eq!(file.rules.len(), 6, "Expected 6, {}", file.rules.len());

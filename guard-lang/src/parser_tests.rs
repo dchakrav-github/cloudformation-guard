@@ -2213,3 +2213,72 @@ rule check_kms_key_usage_in_account(statements) {
         assert_eq!(result.is_ok(), true, "{:?}", result);
     });
 }
+
+#[test]
+fn test_partial_eq() {
+    let rule = r###"
+rule deny_kms_key_checks {
+    Resources[ key_id | Type == 'AWS::KMS::Key' ].Properties {
+        check_kms_key_usage_in_account(KeyPolicy.Statement[*] || KeyPolicy.Statement)
+            <<KMS service actions are not DENIED access from outside account explicitly on %key_id>>
+        EnableKeyRotation == true
+            <<ALL KMS keys must have auto rotation of key enabled %key_id>>
+    }
+}"###;
+
+    // Locations are all different
+    let rule2 = r###"rule deny_kms_key_checks {
+    Resources[ key_id | Type == 'AWS::KMS::Key' ].Properties {
+        check_kms_key_usage_in_account(KeyPolicy.Statement[*] || KeyPolicy.Statement)
+            <<KMS service actions are not DENIED access from outside account explicitly on %key_id>>
+        EnableKeyRotation == true
+            <<ALL KMS keys must have auto rotation of key enabled %key_id>>
+    }
+}"###;
+
+    let span = Span::new_extra(rule, "");
+    let rule_expr = parse_rule_expr(span);
+    assert_eq!(rule_expr.is_ok(), true, "{:?}", rule_expr);
+    let rule_expr = rule_expr.unwrap().1;
+
+    let span = Span::new_extra(rule2, "");
+    let rule_expr2 = parse_rule_expr(span);
+    assert_eq!(rule_expr2.is_ok(), true, "{:?}", rule_expr2);
+
+    let rule_expr2 = rule_expr2.unwrap().1;
+
+    assert_eq!(rule_expr, rule_expr2, "{:?}, {:?}", rule_expr, rule_expr2);
+
+    //
+    // Value expressions
+    //
+    let value = r###"
+#
+# Constants
+#
+let certificate_association_resource_types      = [
+    'AWS::CertificateManager::Certificate',
+    'AWS::ACMPCA::Certificate',
+    'AWS::ACMPCA::CertificateAuthorityActivation'
+]
+    "###;
+    let span = Span::new_extra(value, "");
+    let value_expr = parse_let_expr(span);
+    assert_eq!(value_expr.is_ok(), true, "{:?}", value_expr);
+    let value_expr = value_expr.unwrap().1;
+
+    let value2 = r###"
+let certificate_association_resource_types      = [
+    'AWS::CertificateManager::Certificate',
+    'AWS::ACMPCA::Certificate',
+    'AWS::ACMPCA::CertificateAuthorityActivation'
+]
+    "###;
+    let span = Span::new_extra(value2, "");
+    let value2_expr = parse_let_expr(span);
+    assert_eq!(value2_expr.is_ok(), true, "{:?}", value2_expr);
+    let value2_expr = value2_expr.unwrap().1;
+
+    assert_eq!(value_expr, value2_expr);
+
+}

@@ -165,14 +165,12 @@ impl PartialEq for Expr {
 
             (Expr::Variable(mine),
                 Expr::Variable(theirs)) => {
-                mine.value == theirs.value &&
-                    mine.location == theirs.location // ??
+                mine.value == theirs.value
             },
 
             (Expr::VariableReference(mine),
                 Expr::VariableReference(theirs)) => {
-                mine.value == theirs.value &&
-                    mine.location == theirs.location
+                mine.value == theirs.value
             },
 
             (Expr::Block(mine),

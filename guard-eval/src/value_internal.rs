@@ -56,7 +56,7 @@ impl MarkedEventReceiver for StructureReader {
                     let key = key_values.remove(0);
                     let value = key_values.remove(0);
                     let key_str = match key {
-                        Value::String(val, loc) => (val, loc),
+                        Value::String(val, _loc) => val,
                         _ => unreachable!()
                     };
                     map.insert(key_str, value);
@@ -98,7 +98,7 @@ impl MarkedEventReceiver for StructureReader {
                     let map = self.stack.last_mut().unwrap();
                     match map {
                         Value::Map(map, _) => {
-                            let _ = map.insert(fn_ref, array);
+                            let _ = map.insert(fn_ref.0, array);
                         },
                         Value::BadValue(..) => {},
                         _ => unreachable!()
@@ -193,7 +193,7 @@ impl StructureReader {
             "RefAll" => {
                 let mut map = indexmap::IndexMap::new();
                 let fn_ref = Self::short_form_to_long(fn_ref);
-                map.insert((fn_ref.to_string(), loc.clone()), Value::String(val, loc.clone()));
+                map.insert(fn_ref.to_string(), Value::String(val, loc.clone()));
                 Some(Value::Map(map, loc))
             },
 
@@ -222,7 +222,7 @@ impl StructureReader {
             "Or" => {
                 let mut map = indexmap::IndexMap::new();
                 let fn_ref = Self::short_form_to_long(fn_ref);
-                map.insert((fn_ref.to_string(), loc.clone()), Value::Null(loc.clone()));
+                map.insert(fn_ref.to_string(), Value::Null(loc.clone()));
                 Some(Value::Map(map, loc))
             },
 
@@ -282,7 +282,7 @@ impl TryFrom<Expr> for Value {
                 let map = *map;
                 let mut index = indexmap::IndexMap::new();
                 for (key, each) in map.entries {
-                    index.insert((key.value, key.location), Value::try_from(each)?);
+                    index.insert(key, Value::try_from(each)?);
                 }
                 Ok(Value::Map(index, map.location))
             },
@@ -347,7 +347,7 @@ impl<'expr> TryFrom<&'expr Expr> for Value {
             Expr::Map(map) => {
                 let mut index = indexmap::IndexMap::new();
                 for (key, each) in &map.entries {
-                    index.insert((key.value.clone(), key.location.clone()), Value::try_from(each)?);
+                    index.insert(key.to_string(), Value::try_from(each)?);
                 }
                 Ok(Value::Map(index, map.location.clone()))
             },

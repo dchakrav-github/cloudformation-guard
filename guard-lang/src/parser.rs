@@ -688,7 +688,7 @@ fn let_query_or_value(input: Span) -> IResult<Span, Expr> {
 fn parse_let_expr(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, (_let, variable)) = strip_comments_space(tuple((
-        terminated(tag("let"), multispace1),
+        terminated(tag("let"), one_or_more_ws_or_comment),
         strip_comments_space(parse_name)
     )))(input)?;
     let (input, _assign_sign) = cut(strip_comments_space(char('=')))(input)?;

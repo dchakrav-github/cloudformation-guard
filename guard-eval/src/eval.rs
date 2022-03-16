@@ -239,14 +239,13 @@ impl<'c, 'v, 'r> Visitor<'v> for AssignHandler<'c, 'v, 'r> {
         }
         let mut converted = indexmap::IndexMap::new();
         for (key, value) in &value.entries {
-            let key = (key.value.clone(), key.location.clone());
             let value =  match value.accept(
                 AssignHandler{hierarchy: self.hierarchy})? {
                 ValueType::LiteralValue(v) => Value::try_from(v)?,
                 ValueType::ComputedValue(v) => v,
                 _ => unreachable!()
             };
-            converted.insert(key, value);
+            converted.insert(key.clone(), value);
         }
         Ok(ValueType::ComputedValue(
             Value::Map(converted, expr.get_location().clone())
