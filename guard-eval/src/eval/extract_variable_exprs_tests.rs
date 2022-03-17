@@ -1,7 +1,35 @@
-use guard_lang::{parse_rules, Expr, RuleExpr};
+use guard_lang::{
+    parse_rules,
+    Expr,
+    RuleExpr,
+    Visitor,
+    FileExpr,
+    RuleClauseExpr,
+    LetExpr,
+    WhenExpr,
+    QueryExpr,
+    BinaryExpr,
+    UnaryExpr,
+    ArrayExpr,
+    MapExpr,
+    Location,
+    StringExpr,
+    RegexExpr,
+    CharExpr,
+    BoolExpr,
+    IntExpr,
+    FloatExpr,
+    RangeIntExpr,
+    RangeFloatExpr,
+    BlockExpr,
+    BlockClauseExpr,
+    UnaryOperator
+};
+
 use crate::{EvalReporter, Value, EvaluationError, Status};
 use std::collections::{HashMap, HashSet};
 use crate::eval::CheckValueLiteral;
+use guard_lang::Expr::UnaryOperation;
 
 #[test]
 fn test_rule_file_extraction() {
@@ -151,6 +179,33 @@ rule check_kms_key_usage_in_account(statements) {
     let let_expr = *(scope.variable_definitions.get(
         "computed").unwrap());
     assert_eq!(let_expr.value.accept(CheckValueLiteral{}).unwrap(), false);
+    struct CheckComputed{};
+    impl Visitor<'_> for CheckComputed {
+        type Value = ();
+        type Error = ();
+
+        fn visit_unary_operation(self, _expr: &'_ Expr, value: &'_ UnaryExpr)
+            -> Result<Self::Value, Self::Error>
+        {
+            assert_eq!(value.operator, UnaryOperator::Keys);
+            Ok(())
+        }
+
+        fn visit_map(self, _expr: &'_ Expr, value: &'_ MapExpr) -> Result<Self::Value, Self::Error> {
+            if let Some(expr) = value.entries.get("all_tags") {
+                expr.accept(CheckComputed{})?;
+            }
+            Ok(())
+        }
+
+
+
+        fn visit_any(self, expr: &'_ Expr) -> Result<Self::Value, Self::Error> {
+            todo!()
+        }
+    }
+    let expr_checking = let_expr.value.accept(CheckComputed{});
+    assert_eq!(expr_checking.is_ok(), true);
 
     let let_expr = *(scope.variable_definitions.get(
         "non_computed_literal").unwrap());

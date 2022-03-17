@@ -1,4 +1,11 @@
-use crate::{EvaluationError, Value, EvalReporter, Status, DataFiles, DataFile};
+use crate::{
+    EvaluationError,
+    Value,
+    EvalReporter,
+    Status,
+    DataFiles,
+    DataFile
+};
 
 use guard_lang::{
     Expr,
@@ -30,26 +37,31 @@ use guard_lang::{
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::convert::TryFrom;
+use std::collections::hash_map::Entry;
+use std::cell::RefCell;
 
 pub fn evaluate<'e, 's>(rule_file: &'s Expr,
                     data: &'s DataFiles,
                     reporter: &'e mut dyn EvalReporter<'s>) -> Result<Status, EvaluationError<'s>>
 {
-    let mut hierarchy = ScopeHierarchy { scopes: Vec::with_capacity(4) };
+    let mut hierarchy = ScopeHierarchy {
+        roots: data,
+        scopes: Vec::with_capacity(4),
+        completed: Vec::with_capacity(4),
+        reporter
+    };
     let variable_extractor = ExtractVariableExprs {
         scope: Scope {
             variable_definitions: HashMap::with_capacity(4),
             variables: HashMap::with_capacity(4),
-            reporter,
-            roots: data
         }
     };
 
-    hierarchy.scopes.push(rule_file.accept(variable_extractor)?);
+    hierarchy.add_scope(rule_file.accept(variable_extractor)?);
 
     //hierarchy.scopes.push(root);
     struct RootContext<'context, 'value, 'report> {
-        scope: &'context mut Scope<'value, 'report>,
+        scope: &'context mut Scope<'value>,
         hierarchy: &'context mut ScopeHierarchy<'value, 'report>
     }
     impl<'context, 'value, 'report> Visitor<'value> for RootContext<'context, 'value, 'report> {
@@ -72,39 +84,80 @@ pub fn evaluate<'e, 's>(rule_file: &'s Expr,
 }
 
 struct ScopeHierarchy<'value, 'report> {
-    scopes: Vec<Scope<'value, 'report>>
+    roots: &'value Vec<DataFile>,
+    scopes: Vec<Scope<'value>>,
+    completed: Vec<Scope<'value>>,
+    reporter: &'report mut dyn EvalReporter<'value>
 }
 
 impl<'v, 'r> ScopeHierarchy<'v, 'r> {
-    fn resolve_variable<'s>(&'s mut self, name: &str) -> &'s ValueType<'v> {
-        todo!()
+    fn get_data_roots(&self) -> &'v DataFiles {
+        self.roots
+    }
+
+    fn get_reporter(&self) -> &'r mut dyn EvalReporter<'v> {
+        self.reporter
+    }
+
+    fn get_resolved_variable(&self, name: &str) -> Option<ValueType<'v>> {
+        for each_scope in &self.scopes {
+            match each_scope.variables.get(name) {
+                Some(v) => return Some(v.clone()),
+                None => continue
+            }
+        }
+        None
+    }
+
+    fn get_variable_expression(&self, name: &str) -> Result<(usize, &'v LetExpr), EvaluationError<'v>> {
+        for (idx, each_scope) in self.scopes.iter().enumerate() {
+            match each_scope.variable_definitions.get(name) {
+                Some(v) => return Ok((idx, *v)),
+                None => continue
+            }
+        }
+        return Err(EvaluationError::ComputationError(
+            format!("Variable {} could not resolved in any scope", name)))
+    }
+
+    fn add_variable_resolution(&mut self, scope_idx: usize, name: &'v str, value: ValueType<'v>) {
+        self.scopes.get_mut(scope_idx).unwrap().variables.insert(name, value);
     }
 
     fn resolve_rule<'s>(&mut self, name: &str) -> Status {
         todo!()
     }
+
+    fn add_scope(&mut self, scope: Scope<'v>) {
+        self.scopes.insert(0, scope);
+    }
+
+    fn drop_scope(&mut self) {
+        if !self.scopes.is_empty() {
+            self.completed.insert(0, self.scopes.remove(0));
+        }
+    }
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ValueType<'value> {
     SingleValue(&'value Value),
     QueryValues(Vec<&'value Value>),
+    ListValue(&'value Vec<Value>),
     LiteralValue(&'value Expr),
     ComputedValue(Value),
 }
 
 #[derive(Debug)]
-struct Scope<'value, 'report> {
-    roots: &'value Vec<DataFile>,
+struct Scope<'value> {
     variable_definitions: HashMap<&'value str, &'value LetExpr>,
     variables: HashMap<&'value str, ValueType<'value>>,
-    reporter: &'report mut dyn EvalReporter<'value>
 }
 
-struct ExtractVariableExprs<'v, 'r> { scope: Scope<'v, 'r> }
-impl<'v, 'r> Visitor<'v> for ExtractVariableExprs<'v, 'r> {
-    type Value = Scope<'v, 'r>;
+struct ExtractVariableExprs<'v> { scope: Scope<'v> }
+impl<'v> Visitor<'v> for ExtractVariableExprs<'v> {
+    type Value = Scope<'v>;
     type Error = EvaluationError<'v>;
 
     fn visit_file(mut self, _expr: &'v Expr, file: &'v FileExpr) -> Result<Self::Value, Self::Error> {
@@ -153,10 +206,6 @@ impl<'v, 'r> Visitor<'v> for ExtractVariableExprs<'v, 'r> {
 #[cfg(test)]
 mod extract_variable_exprs_tests;
 
-struct AssignHandler<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>
-}
-
 struct CheckValueLiteral{}
 impl<'v> Visitor<'v> for CheckValueLiteral {
     type Value = bool;
@@ -193,6 +242,10 @@ impl<'v> Visitor<'v> for CheckValueLiteral {
             _ => Ok(false)
         }
     }
+}
+
+struct AssignHandler<'c, 'v, 'r> {
+    hierarchy: &'c mut ScopeHierarchy<'v, 'r>
 }
 
 impl<'c, 'v, 'r> Visitor<'v> for AssignHandler<'c, 'v, 'r> {
@@ -252,7 +305,6 @@ impl<'c, 'v, 'r> Visitor<'v> for AssignHandler<'c, 'v, 'r> {
         ))
     }
 
-
     fn visit_string(self, expr: &'v Expr, _value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
         literal(expr)
     }
@@ -285,6 +337,19 @@ impl<'c, 'v, 'r> Visitor<'v> for AssignHandler<'c, 'v, 'r> {
         literal(expr)
     }
 
+    fn visit_variable_reference(mut self, _expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
+        match self.hierarchy.get_resolved_variable(&value.value) {
+            Some(v) => Ok(v),
+            None => {
+                let (scopde_idx, lexpr) =
+                    self.hierarchy.get_variable_expression(&value.value)?;
+                let resolved = lexpr.value.accept(AssignHandler{hierarchy: self.hierarchy})?;
+                self.hierarchy.add_variable_resolution(scopde_idx, &value.value, resolved.clone());
+                Ok(resolved)
+            }
+        }
+    }
+
     fn visit_any(self, expr: &'v Expr) -> Result<Self::Value, Self::Error> {
         Err(EvaluationError::UnexpectedExpr(
             format!("When attempting extract assignment statements got unexpected Expr"),
@@ -298,7 +363,43 @@ fn literal(expr: &Expr) -> Result<ValueType, EvaluationError> {
 }
 
 struct QueryHandler<'c, 'v, 'r> {
-    scope: &'c mut Scope<'v, 'r>,
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>
+    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+    stack: &'c mut Vec<ValueType<'v>>
 }
 
+impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
+    type Value = ();
+    type Error = EvaluationError<'v>;
+
+    fn visit_select(mut self, _expr: &'v Expr, value: &'v QueryExpr) -> Result<Self::Value, Self::Error> {
+        for each in &value.parts {
+            each.accept(QueryHandler{hierarchy: self.hierarchy, stack: self.stack})?;
+        }
+        Ok(())
+    }
+
+    fn visit_string(self, _expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
+        if self.stack.is_empty() {
+            for each in self.hierarchy.get_data_roots() {
+                if value.value == "*" {
+                    if let Value::List(v, _) = &each.root {
+                        self.stack.insert(0, ValueType::ListValue(v));
+                    }
+                }
+                else {
+                    if let Value::Map(map, _) = &each.root {
+                        if let Some(value) = map.get(&value.value) {
+
+                        }
+                    }
+                }
+            }
+        }
+        todo!()
+    }
+
+
+    fn visit_any(self, expr: &'v Expr) -> Result<Self::Value, Self::Error> {
+        todo!()
+    }
+}

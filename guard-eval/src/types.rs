@@ -22,6 +22,10 @@ pub enum EvaluationError<'expr> {
     ///
     UnexpectedExpr(String, &'expr Expr),
 
+    /// Unexpected Expression handling error
+    ///
+    ComputationError(String),
+
     /// Any io error that occurs when reading or opening Files
     IoError(std::io::Error),
 }
@@ -33,6 +37,7 @@ impl<'expr> std::error::Error for EvaluationError<'expr> {
             EvaluationError::DataParseError(err) => Some(err),
             EvaluationError::IoError(io_error) => Some(io_error),
             EvaluationError::UnexpectedExpr(..) => None,
+            EvaluationError::ComputationError(_) => None,
         }
     }
 }
@@ -45,6 +50,9 @@ impl<'expr> std::fmt::Display for EvaluationError<'expr> {
             EvaluationError::IoError(p)  => std::fmt::Display::fmt(p, f),
             EvaluationError::UnexpectedExpr(msg, expr) => {
                 write!(f, "Error {} Location {}, Expr {:?}", msg, expr.get_location(), *expr)
+            },
+            EvaluationError::ComputationError(msg) => {
+                write!(f, "Error {}", msg)
             }
         }
     }
