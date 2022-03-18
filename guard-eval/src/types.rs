@@ -98,18 +98,34 @@ pub enum Status {
     SKIP
 }
 
+#[derive(Debug, Clone)]
+pub enum ValueType<'value> {
+    SingleValue(&'value Value),
+    QueryValues(Vec<&'value Value>),
+    LiteralValue(&'value Expr),
+    ComputedValue(Value),
+}
+
+
 pub trait EvalReporter<'value> : Debug {
     fn report_missing_value(
         &mut self,
-        until: &'value Value,
+        until: ValueType<'value>,
         data_file_name: &'value str,
-        expr: &'value Expr) -> Result<(), EvaluationError>;
+        expr: &'value Expr) -> Result<(), EvaluationError<'value>>;
+
+    fn report_mismatch_value_traversal(
+        &mut self,
+        until: ValueType<'value>,
+        data_file_name: &'value str,
+        expr: &'value Expr) -> Result<(), EvaluationError<'value>>;
 
     fn report_evaluation(
         &mut self,
-        value: &'value Value,
+        value: ValueType<'value>,
         data_file_name: &'value str,
-        status: Status) -> Result<(), EvaluationError>;
+        expr: &'value Expr,
+        status: Status) -> Result<(), EvaluationError<'value>>;
 }
 
 #[derive(Debug)]

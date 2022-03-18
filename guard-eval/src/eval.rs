@@ -4,7 +4,8 @@ use crate::{
     EvalReporter,
     Status,
     DataFiles,
-    DataFile
+    DataFile,
+    ValueType
 };
 
 use guard_lang::{
@@ -39,6 +40,7 @@ use std::rc::Rc;
 use std::convert::TryFrom;
 use std::collections::hash_map::Entry;
 use std::cell::RefCell;
+use std::process::exit;
 
 pub fn evaluate<'e, 's>(rule_file: &'s Expr,
                     data: &'s DataFiles,
@@ -95,10 +97,6 @@ impl<'v, 'r> ScopeHierarchy<'v, 'r> {
         self.roots
     }
 
-    fn get_reporter(&self) -> &'r mut dyn EvalReporter<'v> {
-        self.reporter
-    }
-
     fn get_resolved_variable(&self, name: &str) -> Option<ValueType<'v>> {
         for each_scope in &self.scopes {
             match each_scope.variables.get(name) {
@@ -139,15 +137,6 @@ impl<'v, 'r> ScopeHierarchy<'v, 'r> {
     }
 }
 
-
-#[derive(Debug, Clone)]
-enum ValueType<'value> {
-    SingleValue(&'value Value),
-    QueryValues(Vec<&'value Value>),
-    ListValue(&'value Vec<Value>),
-    LiteralValue(&'value Expr),
-    ComputedValue(Value),
-}
 
 #[derive(Debug)]
 struct Scope<'value> {
@@ -251,10 +240,6 @@ struct AssignHandler<'c, 'v, 'r> {
 impl<'c, 'v, 'r> Visitor<'v> for AssignHandler<'c, 'v, 'r> {
     type Value = ValueType<'v>;
     type Error = EvaluationError<'v>;
-
-    fn visit_select(self, expr: &'v Expr, _value: &'v QueryExpr) -> Result<Self::Value, Self::Error> {
-        todo!()
-    }
 
     fn visit_binary_operation(self, expr: &'v Expr, value: &'v BinaryExpr) -> Result<Self::Value, Self::Error> {
         if value.operator != BinaryOperator::Or {
@@ -368,34 +353,161 @@ struct QueryHandler<'c, 'v, 'r> {
 }
 
 impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
-    type Value = ();
+    type Value = bool;
     type Error = EvaluationError<'v>;
 
     fn visit_select(mut self, _expr: &'v Expr, value: &'v QueryExpr) -> Result<Self::Value, Self::Error> {
         for each in &value.parts {
-            each.accept(QueryHandler{hierarchy: self.hierarchy, stack: self.stack})?;
+            if !each.accept(QueryHandler{hierarchy: self.hierarchy, stack: self.stack})? {
+                return Ok(false)
+            }
         }
-        Ok(())
+        Ok(true)
     }
 
-    fn visit_string(self, _expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
+    fn visit_string(mut self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
         if self.stack.is_empty() {
-            for each in self.hierarchy.get_data_roots() {
-                if value.value == "*" {
-                    if let Value::List(v, _) = &each.root {
-                        self.stack.insert(0, ValueType::ListValue(v));
+            'exit: loop {
+                for each in self.hierarchy.get_data_roots() {
+                    if value.value == "*" {
+                        if let Value::List(v, _) = &each.root {
+                            for each in v {
+                                self.stack.push(ValueType::SingleValue(each));
+                            }
+                            break 'exit;
+                        } else if let Value::Map(map, _) = &each.root {
+                            for each_value in map.values() {
+                                self.stack.push(ValueType::SingleValue(each_value));
+                            }
+                            break 'exit;
+                        }
+                    } else {
+                        if let Value::Map(map, _) = &each.root {
+                            if let Some(value) = map.get(&value.value) {
+                                self.stack.push(ValueType::SingleValue(value));
+                                break 'exit;
+                            }
+                        }
                     }
                 }
-                else {
-                    if let Value::Map(map, _) = &each.root {
-                        if let Some(value) = map.get(&value.value) {
+                return Err(EvaluationError::ComputationError(
+                    format!("Could not find any datafile that satisfies the query {:?}. Data file {:?}",
+                            expr,
+                    self.hierarchy.roots)
+                ))
+            }
+        }
+        else  {
+            if value.value == "this" {
+                return Ok(true)
+            }
+            let mut current: Vec<ValueType<'_>> = self.stack.drain(..).collect();
+            let index = value.value.parse::<i32>().map_or(None, |i| Some(i));
+            if let Some(i) = index {
+                while let Some(top) = current.pop() {
+                    match top {
+                        ValueType::SingleValue(s @ Value::List(list, _)) => {
+                            let i = (if i < 0 { list.len() as i32 + i } else { i }) as usize;
+                            if let Some(v) = list.get(i) {
+                                self.stack.push(ValueType::SingleValue(v));
+                            }
+                            else {
+                                self.hierarchy.reporter.report_missing_value(
+                                    top,
+                                    "",
+                                    expr
+                                )?;
+                            }
+                            continue
+                        },
+                        ValueType::QueryValues(query) => {
+                            let i = if i < 0 { query.len() as i32 + i } else { i } as usize;
+                            if let Some(v) = query.get(i) {
+                                self.stack.push(ValueType::SingleValue(*v));
+                            }
+                            continue
+                        },
+                        _ =>  {
+                            self.hierarchy.reporter.report_mismatch_value_traversal(
+                                top,
+                                "",
+                                expr
+                            )?;
+                        }
+                    }
+                }
+            }
+            else {
+                while let Some(top) = current.pop() {
+                    match top {
+                        ValueType::SingleValue(Value::Map(map, _)) => {
+                            match value.value.as_str() {
+                                "*" => {
+                                    if map.is_empty() {
+                                        self.hierarchy.reporter.report_missing_value(
+                                            top,
+                                            "",
+                                            expr
+                                        )?;
+                                        continue;
+                                    }
+                                    for each_value in map.values() {
+                                        self.stack.push(ValueType::SingleValue(each_value));
+                                    }
+                                },
 
+                                rest => {
+                                    match map.get(rest) {
+                                        Some(v) => {
+                                            self.stack.push(ValueType::SingleValue(v));
+                                        },
+                                        None => {
+                                            self.hierarchy.reporter.report_missing_value(
+                                                top,
+                                                "",
+                                                expr
+                                            )?;
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        ValueType::SingleValue(Value::List(list, _)) => {
+                            match value.value.as_str() {
+                                "*" => {
+                                    if list.is_empty() {
+                                        self.hierarchy.reporter.report_missing_value(
+                                            top,
+                                            "",
+                                            expr
+                                        )?;
+                                        continue;
+                                    }
+                                    for each_value in list {
+                                        self.stack.push(ValueType::SingleValue(each_value));
+                                    }
+                                },
+                                _ => {
+                                    self.hierarchy.reporter.report_mismatch_value_traversal(
+                                        top,
+                                        "",
+                                        expr
+                                    )?;
+                                }
+                            }
+                        }
+                        _ => {
+                            self.hierarchy.reporter.report_mismatch_value_traversal(
+                                top,
+                                "",
+                                expr
+                            )?;
                         }
                     }
                 }
             }
         }
-        todo!()
+        Ok(!self.stack.is_empty())
     }
 
 
@@ -403,3 +515,9 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod query_tests;
+
+#[cfg(test)]
+mod tests_common;

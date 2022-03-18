@@ -664,7 +664,7 @@ where
     }
 }
 
-fn parse_select(input: Span) -> IResult<Span, Expr> {
+pub fn parse_select(input: Span) -> IResult<Span, Expr> {
     parse_query(parse_var_block, input)
 }
 

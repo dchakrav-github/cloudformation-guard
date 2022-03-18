@@ -48,6 +48,8 @@ pub fn parse_json_value(value: &str, file: &str) -> Result<Expr> {
     }
 }
 
+pub use parser::parse_select;
+
 
 #[cfg(test)]
 mod tests {

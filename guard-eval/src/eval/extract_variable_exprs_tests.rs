@@ -26,7 +26,7 @@ use guard_lang::{
     UnaryOperator
 };
 
-use crate::{EvalReporter, Value, EvaluationError, Status};
+use crate::{EvalReporter, Value, EvaluationError, Status, ValueType};
 use std::collections::{HashMap, HashSet};
 use crate::eval::CheckValueLiteral;
 use guard_lang::Expr::UnaryOperation;
@@ -121,25 +121,6 @@ rule check_kms_key_usage_in_account(statements) {
     }
 }"###;
 
-    let data_files: super::DataFiles = Vec::with_capacity(1);
-    #[derive(Debug)]
-    struct Reporter{};
-    impl<'value> EvalReporter<'value> for Reporter {
-        fn report_missing_value(&mut self,
-                                _until: &'value Value,
-                                _data_file_name: &'value str,
-                                _expr: &'value Expr) -> Result<(), EvaluationError> {
-            todo!()
-        }
-
-        fn report_evaluation(&mut self,
-                             _value: &'value Value,
-                             _data_file_name: &'value str,
-                             _status: Status) -> Result<(), EvaluationError> {
-            todo!()
-        }
-    }
-    let mut reporter = Reporter{};
     let rules_file = parse_rules(rules, "");
     assert_eq!(rules_file.is_ok(), true, "{:?}", rules_file);
     let rules_file = rules_file.unwrap();
@@ -155,8 +136,6 @@ rule check_kms_key_usage_in_account(statements) {
         "acm_non_pca_certs",];
     let extract_vars = super::ExtractVariableExprs {
         scope: super::Scope {
-            roots: &data_files,
-            reporter: &mut reporter,
             variables: HashMap::new(),
             variable_definitions: HashMap::with_capacity(variable_names.len()),
         }
