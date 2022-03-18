@@ -100,8 +100,7 @@ pub enum Status {
 
 #[derive(Debug, Clone)]
 pub enum ValueType<'value> {
-    SingleValue(&'value Value),
-    QueryValues(Vec<&'value Value>),
+    DataValue(&'value Value),
     LiteralValue(&'value Expr),
     ComputedValue(Value),
 }

@@ -372,19 +372,19 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
                     if value.value == "*" {
                         if let Value::List(v, _) = &each.root {
                             for each in v {
-                                self.stack.push(ValueType::SingleValue(each));
+                                self.stack.push(ValueType::DataValue(each));
                             }
                             break 'exit;
                         } else if let Value::Map(map, _) = &each.root {
                             for each_value in map.values() {
-                                self.stack.push(ValueType::SingleValue(each_value));
+                                self.stack.push(ValueType::DataValue(each_value));
                             }
                             break 'exit;
                         }
                     } else {
                         if let Value::Map(map, _) = &each.root {
                             if let Some(value) = map.get(&value.value) {
-                                self.stack.push(ValueType::SingleValue(value));
+                                self.stack.push(ValueType::DataValue(value));
                                 break 'exit;
                             }
                         }
@@ -406,10 +406,10 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
             if let Some(i) = index {
                 while let Some(top) = current.pop() {
                     match top {
-                        ValueType::SingleValue(s @ Value::List(list, _)) => {
+                        ValueType::DataValue(Value::List(list, _)) => {
                             let i = (if i < 0 { list.len() as i32 + i } else { i }) as usize;
                             if let Some(v) = list.get(i) {
-                                self.stack.push(ValueType::SingleValue(v));
+                                self.stack.push(ValueType::DataValue(v));
                             }
                             else {
                                 self.hierarchy.reporter.report_missing_value(
@@ -417,13 +417,6 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
                                     "",
                                     expr
                                 )?;
-                            }
-                            continue
-                        },
-                        ValueType::QueryValues(query) => {
-                            let i = if i < 0 { query.len() as i32 + i } else { i } as usize;
-                            if let Some(v) = query.get(i) {
-                                self.stack.push(ValueType::SingleValue(*v));
                             }
                             continue
                         },
@@ -440,7 +433,7 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
             else {
                 while let Some(top) = current.pop() {
                     match top {
-                        ValueType::SingleValue(Value::Map(map, _)) => {
+                        ValueType::DataValue(Value::Map(map, _)) => {
                             match value.value.as_str() {
                                 "*" => {
                                     if map.is_empty() {
@@ -452,14 +445,14 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
                                         continue;
                                     }
                                     for each_value in map.values() {
-                                        self.stack.push(ValueType::SingleValue(each_value));
+                                        self.stack.push(ValueType::DataValue(each_value));
                                     }
                                 },
 
                                 rest => {
                                     match map.get(rest) {
                                         Some(v) => {
-                                            self.stack.push(ValueType::SingleValue(v));
+                                            self.stack.push(ValueType::DataValue(v));
                                         },
                                         None => {
                                             self.hierarchy.reporter.report_missing_value(
@@ -472,7 +465,7 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
                                 }
                             }
                         },
-                        ValueType::SingleValue(Value::List(list, _)) => {
+                        ValueType::DataValue(Value::List(list, _)) => {
                             match value.value.as_str() {
                                 "*" => {
                                     if list.is_empty() {
@@ -484,7 +477,7 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
                                         continue;
                                     }
                                     for each_value in list {
-                                        self.stack.push(ValueType::SingleValue(each_value));
+                                        self.stack.push(ValueType::DataValue(each_value));
                                     }
                                 },
                                 _ => {

@@ -34,7 +34,7 @@ fn test_simple_query() {
         "AWS::IAM::InstanceProfile",
         "AWS::IAM::Role",];
     assert_eq!(stack.iter().all(|s| match s {
-        ValueType::SingleValue(Value::String(s,_)) => expected.contains(&s.as_str()),
+        ValueType::DataValue(Value::String(s, _)) => expected.contains(&s.as_str()),
         _ => unreachable!()
     }), true);
 }
@@ -50,7 +50,7 @@ fn test_simple_query_missing_values() {
     struct Reporter{};
     impl<'v> EvalReporter<'v> for Reporter {
         fn report_missing_value(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), EvaluationError<'v>> {
-            assert_eq!(matches!(until, ValueType::SingleValue(Value::Map(..))), true);
+            assert_eq!(matches!(until, ValueType::DataValue(Value::Map(..))), true);
             Ok(())
         }
 
