@@ -1,6 +1,7 @@
 use super::*;
 use crate::eval::tests_common::NoOpReporter;
 use std::path::PathBuf;
+use guard_lang::Span;
 
 #[test]
 fn test_simple_query() {
@@ -22,9 +23,10 @@ fn test_simple_query() {
     assert_eq!(query.is_ok(), true, "{:?}", query);
     let query = query.unwrap().1;
     let mut stack = Vec::new();
-    let query_handler = QueryHandler{ hierarchy: &mut hierarchy, stack: &mut stack };
+    let query_handler = QueryHandler{ hierarchy: &mut hierarchy, stack };
     let r = query.accept(query_handler);
     assert_eq!(r.is_ok(), true, "{:?}", r);
+    stack = r.unwrap();
     assert_eq!(stack.len(), 6);
     let expected =
         ["AWS::AutoScaling::AutoScalingGroup",
@@ -37,6 +39,26 @@ fn test_simple_query() {
         ValueType::DataValue(Value::String(s, _)) => expected.contains(&s.as_str()),
         _ => unreachable!()
     }), true);
+
+    let mut scope = Scope {
+        variables: HashMap::new(),
+        variable_definitions: HashMap::new(),
+    };
+
+    let expr = guard_lang::parse_value(
+        Span::new_extra(r#"[ /Web/, /Launch/ ]    "#, "")).unwrap().1;
+    scope.variables.insert("lookup", vec![ValueType::LiteralValue(&expr)]);
+    hierarchy.scopes.insert(0, scope);
+
+    let query = guard_lang::parse_select(guard_lang::Span::new_extra("Resources.%lookup", ""))
+        .unwrap().1;
+    stack.clear();
+    let r = query.accept(
+        QueryHandler{ hierarchy: &mut hierarchy, stack});
+    assert_eq!(r.is_ok(), true, "{:?}", r);
+    stack = r.unwrap();
+    assert_eq!(stack.len(), 3);
+
 }
 
 #[test]
@@ -47,7 +69,7 @@ fn test_simple_query_missing_values() {
         root: value, file: PathBuf::new()
     }];
     #[derive(Debug)]
-    struct Reporter{};
+    struct Reporter{}
     impl<'v> EvalReporter<'v> for Reporter {
         fn report_missing_value(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), EvaluationError<'v>> {
             assert_eq!(matches!(until, ValueType::DataValue(Value::Map(..))), true);
@@ -74,11 +96,10 @@ fn test_simple_query_missing_values() {
         completed: Vec::new()
     };
 
-    let query_handler = QueryHandler{ hierarchy: &mut hierarchy, stack: &mut stack };
+    let query_handler = QueryHandler{ hierarchy: &mut hierarchy, stack };
     let r = query.accept(query_handler);
     assert_eq!(r.is_ok(), true);
-    let r = r.unwrap();
-    assert_eq!(r, false);
+    stack = r.unwrap();
     assert_eq!(stack.is_empty(), true);
 
 }

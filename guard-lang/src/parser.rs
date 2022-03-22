@@ -520,7 +520,7 @@ fn parse_array(input: Span) -> IResult<Span, Expr> {
 //
 // VALUE        ::= SCALAR | MAP | ARRAY | NULL
 //
-pub(crate) fn parse_value(input: Span) -> IResult<Span, Expr> {
+pub fn parse_value(input: Span) -> IResult<Span, Expr> {
     strip_comments_space(alt((
         parse_scalar_value,
         parse_map,
@@ -716,6 +716,14 @@ fn query_or_value(input: Span) -> IResult<Span, Expr> {
     )(input)
 }
 
+fn in_operator(input: Span) -> IResult<Span, BinaryOperator> {
+    let (input, not) = opt(not)(input)?;
+    let (input, op) = strip_comments_trailing_space(
+        value(BinaryOperator::In, alt((tag("in"), tag("IN"))))
+    )(input)?;
+    Ok((input, not.map_or(op, |_| BinaryOperator::NotIn)))
+}
+
 fn binary_cmp_operator(input: Span) -> IResult<Span, BinaryOperator> {
     alt( (
         strip_comments_space(
@@ -728,9 +736,7 @@ fn binary_cmp_operator(input: Span) -> IResult<Span, BinaryOperator> {
                 value(BinaryOperator::LesserThanEquals, tag("<=")),
                 value(BinaryOperator::Lesser, preceded(tag("<"), peek(nom::combinator::not(char('<')))))
             ))),
-        strip_comments_trailing_space(
-            value(BinaryOperator::In, alt((tag("in"), tag("IN"))))
-        ),
+        in_operator
     ))(input)
 }
 

@@ -13,6 +13,7 @@ serde_json = "1.0.79"
 guard-lang = { path = "../guard-lang" }
 walkdir = "2.3.2"
 yaml-rust = {git = "https://github.com/dchakrav-github/yaml-rust"}
+regex = "1.5.5"
 
 [dev-dependencies]
 anyhow = "1.0.56"

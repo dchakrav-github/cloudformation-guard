@@ -4,6 +4,7 @@
 
 use super::exprs::*;
 use std::cmp::Ordering;
+use crate::RangeType;
 
 impl PartialEq<i64> for IntExpr {
     fn eq(&self, other: &i64) -> bool {
@@ -181,6 +182,63 @@ impl PartialEq for Expr {
             },
 
             _ => false,
+        }
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for RangeType<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.lower.partial_cmp(&other.lower)
+    }
+}
+
+impl PartialOrd for Expr {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (Expr::Null(_mine),
+                Expr::Null(_theirs)) => { Some(Ordering::Equal) },
+
+            (Expr::String(mine),
+                Expr::String(theirs)) => {
+                mine.value.partial_cmp(&theirs.value)
+            },
+
+            (Expr::Regex(mine),
+                Expr::Regex(theirs)) => {
+                mine.value.partial_cmp(&theirs.value)
+            },
+
+            (Expr::Char(mine),
+                Expr::Char(theirs)) => {
+                mine.value.partial_cmp(&theirs.value)
+            },
+
+            (Expr::Bool(mine),
+                Expr::Bool(theirs)) => {
+                mine.value.partial_cmp(&theirs.value)
+            },
+
+            (Expr::Int(mine),
+                Expr::Int(theirs)) => {
+                mine.value.partial_cmp(&theirs.value)
+            },
+
+            (Expr::Float(mine),
+                Expr::Float(theirs)) => {
+                mine.value.partial_cmp(&theirs.value)
+            },
+
+            (Expr::RangeInt(mine),
+                Expr::RangeInt(theirs)) => {
+                mine.value.partial_cmp(&theirs.value)
+            },
+
+            (Expr::RangeFloat(mine),
+                Expr::RangeFloat(theirs)) => {
+                mine.value.partial_cmp(&theirs.value)
+            },
+
+            _ => None
         }
     }
 }

@@ -197,6 +197,7 @@ pub enum BinaryOperator {
     Lesser,
     LesserThanEquals,
     In,
+    NotIn,
     Add,
     Or,
     And

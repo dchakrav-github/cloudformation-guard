@@ -27,7 +27,13 @@ pub enum EvaluationError<'expr> {
     ComputationError(String),
 
     /// Any io error that occurs when reading or opening Files
+    ///
     IoError(std::io::Error),
+
+    ///
+    ///
+    QueryEvaluationError(String, Vec<ValueType<'expr>>)
+
 }
 
 impl<'expr> std::error::Error for EvaluationError<'expr> {
@@ -38,6 +44,7 @@ impl<'expr> std::error::Error for EvaluationError<'expr> {
             EvaluationError::IoError(io_error) => Some(io_error),
             EvaluationError::UnexpectedExpr(..) => None,
             EvaluationError::ComputationError(_) => None,
+            EvaluationError::QueryEvaluationError(..) => None,
         }
     }
 }
@@ -53,6 +60,9 @@ impl<'expr> std::fmt::Display for EvaluationError<'expr> {
             },
             EvaluationError::ComputationError(msg) => {
                 write!(f, "Error {}", msg)
+            },
+            EvaluationError::QueryEvaluationError(msg, stack) => {
+                write!(f, "QueryEval error {} , {:?}", msg, stack)
             }
         }
     }
@@ -81,6 +91,7 @@ pub enum Value {
     BadValue(String, Location),
     Null(Location),
     String(String, Location),
+    Regex(String, Location),
     Bool(bool, Location),
     Int(i64, Location),
     Float(f64, Location),
