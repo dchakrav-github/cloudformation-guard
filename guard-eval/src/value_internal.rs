@@ -1,4 +1,21 @@
-use guard_lang::{Location, Expr, LangError, Visitor, ArrayExpr, MapExpr, StringExpr, RegexExpr, CharExpr, BoolExpr, IntExpr, FloatExpr, RangeIntExpr, RangeFloatExpr, WithinRange};
+use guard_lang::{
+    Location
+    , Expr
+    , LangError
+    , Visitor
+    , ArrayExpr
+    , MapExpr
+    , StringExpr
+    , RegexExpr
+    , CharExpr
+    , BoolExpr
+    , IntExpr
+    , FloatExpr
+    , RangeIntExpr
+    , RangeFloatExpr
+    , WithinRange
+};
+
 use yaml_rust::parser::{MarkedEventReceiver, Parser};
 use yaml_rust::{Event, Yaml};
 use yaml_rust::scanner::{Marker, TokenType, TScalarStyle};
@@ -454,14 +471,15 @@ impl PartialEq<Expr> for Value {
                 Ok(matches!(self.value, Value::Null(_)))
             }
 
-            fn visit_string(self, _expr: &'_ Expr, value: &'_ StringExpr) -> Result<Self::Value, Self::Error> {
+            fn visit_string(self, expr: &'_ Expr, value: &'_ StringExpr) -> Result<Self::Value, Self::Error> {
                 Ok(match self.value {
                     Value::String(val, _) => &value.value == val,
+                    Value::List(list, _) => list.iter().all(|e| e == expr),
                     _ => false
                 })
             }
 
-            fn visit_regex(self, _expr: &'_ Expr, value: &'_ RegexExpr) -> Result<Self::Value, Self::Error> {
+            fn visit_regex(self, expr: &'_ Expr, value: &'_ RegexExpr) -> Result<Self::Value, Self::Error> {
                 Ok(match self.value {
                     Value::Regex(r, _) => r == &value.value,
                     Value::String(s, _) => {
@@ -472,6 +490,7 @@ impl PartialEq<Expr> for Value {
                             Err(_) => false
                         }
                     },
+                    Value::List(list, _) => list.iter().all(|e| e == expr),
                     _ => false
                 })
             }
@@ -538,70 +557,186 @@ impl PartialEq<Expr> for Value {
     }
 }
 
+struct Comparator<'s> {
+    value: &'s Value,
+    ordering: &'static [Ordering],
+}
+
+impl<'s> Visitor<'_> for Comparator<'s> {
+    type Value = bool;
+    type Error = ();
+
+    fn visit_null(self, _expr: &'_ Expr, _value: &'_ Location) -> Result<Self::Value, Self::Error> {
+        Ok(match self.value {
+            Value::Null(_) => self.ordering.contains(&Ordering::Equal),
+            _ => false
+        })
+    }
+
+    fn visit_string(self, _expr: &'_ Expr, value: &'_ StringExpr) -> Result<Self::Value, Self::Error> {
+        Ok(match self.value {
+            Value::String(val, _) => val.partial_cmp(&value.value)
+                .map_or(false, |order| self.ordering.contains(&order)),
+            Value::List(list, _) => {
+                let mut result = true;
+                for each in list {
+                    match each {
+                        Value::String(val, _) => {
+                            result &= val.partial_cmp(&value.value)
+                                .map_or(false, |order| self.ordering.contains(&order));
+                        },
+                        _ => {
+                            result = false;
+                            break;
+                        }
+                    }
+                }
+                result
+            },
+            _ => false
+        })
+    }
+
+    fn visit_regex(self, _expr: &'_ Expr, value: &'_ RegexExpr) -> Result<Self::Value, Self::Error> {
+        Ok(match self.value {
+            Value::Regex(r, _) => value.value.partial_cmp(r).map_or(false, |order| self.ordering.contains(&order)),
+            _ => false
+        })
+    }
+
+    fn visit_char(self, _expr: &'_ Expr, value: &'_ CharExpr) -> Result<Self::Value, Self::Error> {
+        Ok(match self.value {
+            Value::Char(c, _) => c.partial_cmp(&value.value).map_or(false, |order| self.ordering.contains(&order)),
+            Value::List(list, _) => {
+                let mut result = true;
+                for each in list {
+                    match each {
+                        Value::Char(val, _) => {
+                            result &= val.partial_cmp(&value.value)
+                                .map_or(false, |order| self.ordering.contains(&order));
+                        },
+                        _ => {
+                            result = false;
+                            break;
+                        }
+                    }
+                }
+                result
+            },
+            _ => false,
+        })
+    }
+
+    fn visit_bool(self, _expr: &'_ Expr, value: &'_ BoolExpr) -> Result<Self::Value, Self::Error> {
+        Ok(match self.value {
+            Value::Bool(b, _) => b.partial_cmp(&value.value).map_or(false, |order| self.ordering.contains(&order)),
+            _ => false,
+        })
+    }
+
+    fn visit_int(self, _expr: &'_ Expr, value: &'_ IntExpr) -> Result<Self::Value, Self::Error> {
+        Ok(match self.value {
+            Value::Int(i, _) => i.partial_cmp(&value.value).map_or(false, |order| self.ordering.contains(&order)),
+            Value::List(list, _) => {
+                let mut result = true;
+                for each in list {
+                    match each {
+                        Value::Int(val, _) => {
+                            result &= val.partial_cmp(&value.value)
+                               .map_or(false, |order| self.ordering.contains(&order));
+                        },
+                        _ => {
+                            result = false;
+                            break;
+                        }
+                    }
+                }
+                result
+            },
+            _ => false
+        })
+    }
+
+    fn visit_float(self, _expr: &'_ Expr, value: &'_ FloatExpr) -> Result<Self::Value, Self::Error> {
+        Ok(match self.value {
+            Value::Int(i, _) => (*i as f64).partial_cmp(&value.value).map_or(false, |order| self.ordering.contains(&order)),
+            Value::Float(f, _) => f.partial_cmp(&value.value).map_or(false, |order| self.ordering.contains(&order)),
+            Value::List(list, _) => {
+                let mut result = true;
+                for each in list {
+                    match each {
+                        Value::Int(i, _) => {
+                            result &= (*i as f64).partial_cmp(&value.value)
+                                .map_or(false, |order| self.ordering.contains(&order));
+                        },
+                        Value::Float(val, _) => {
+                            result &= val.partial_cmp(&value.value)
+                                .map_or(false, |order| self.ordering.contains(&order));
+                        },
+                        _ => {
+                            result = false;
+                            break;
+                        }
+                    }
+                }
+                result
+            },
+
+            _ => false
+        })
+    }
+
+    fn visit_any(self, expr: &'_ Expr) -> Result<Self::Value, Self::Error> {
+        Ok(false)
+    }
+}
+
 impl PartialOrd<Expr> for Value {
     fn partial_cmp(&self, other: &Expr) -> Option<Ordering> {
-        struct Comparator<'s> { value: &'s Value }
-        impl<'s> Visitor<'_> for Comparator<'s> {
-            type Value = Option<Ordering>;
-            type Error = ();
+        unimplemented!()
+    }
 
-            fn visit_null(self, _expr: &'_ Expr, _value: &'_ Location) -> Result<Self::Value, Self::Error> {
-                Ok(match self.value {
-                    Value::Null(_) => Some(Ordering::Equal),
-                    _ => None
-                })
-            }
-
-            fn visit_string(self, _expr: &'_ Expr, value: &'_ StringExpr) -> Result<Self::Value, Self::Error> {
-                Ok(match self.value {
-                    Value::String(val, _) => value.value.partial_cmp(val),
-                    _ => None
-                })
-            }
-
-            fn visit_regex(self, _expr: &'_ Expr, value: &'_ RegexExpr) -> Result<Self::Value, Self::Error> {
-                Ok(match self.value {
-                    Value::Regex(r, _) => value.value.partial_cmp(r),
-                    _ => None,
-                })
-            }
-
-            fn visit_char(self, _expr: &'_ Expr, value: &'_ CharExpr) -> Result<Self::Value, Self::Error> {
-                Ok(match self.value {
-                    Value::Char(c, _) => value.value.partial_cmp(c),
-                    _ => None
-                })
-            }
-
-            fn visit_bool(self, _expr: &'_ Expr, value: &'_ BoolExpr) -> Result<Self::Value, Self::Error> {
-                Ok(match self.value {
-                    Value::Bool(b, _) => value.value.partial_cmp(b),
-                    _ => None
-                })
-            }
-
-            fn visit_int(self, _expr: &'_ Expr, value: &'_ IntExpr) -> Result<Self::Value, Self::Error> {
-                Ok(match self.value {
-                    Value::Int(i, _) => value.value.partial_cmp(i),
-                    _ => None,
-                })
-            }
-
-            fn visit_float(self, _expr: &'_ Expr, value: &'_ FloatExpr) -> Result<Self::Value, Self::Error> {
-                Ok(match self.value {
-                    Value::Int(i, _) => (*i as f64).partial_cmp(&value.value),
-                    Value::Float(f, _) => f.partial_cmp(&value.value),
-                    _ => None,
-                })
-            }
-
-            fn visit_any(self, expr: &'_ Expr) -> Result<Self::Value, Self::Error> {
-                Ok(None)
-            }
-        }
-        match other.accept(Comparator{value: self}) {
+    fn lt(&self, other: &Expr) -> bool {
+        let comparator = Comparator {
+            value: self,
+            ordering: &[Ordering::Less]
+        };
+        match other.accept(comparator) {
             Ok(eval) => eval,
-            _ => unreachable!()
+            _ => false
+        }
+    }
+
+    fn le(&self, other: &Expr) -> bool {
+        let comparator = Comparator {
+            value: self,
+            ordering: &[Ordering::Less, Ordering::Equal]
+        };
+        match other.accept(comparator) {
+            Ok(eval) => eval,
+            _ => false
+        }
+    }
+
+    fn gt(&self, other: &Expr) -> bool {
+        let comparator = Comparator {
+            value: self,
+            ordering: &[Ordering::Greater]
+        };
+        match other.accept(comparator) {
+            Ok(eval) => eval,
+            _ => false
+        }
+    }
+
+    fn ge(&self, other: &Expr) -> bool {
+        let comparator = Comparator {
+            value: self,
+            ordering: &[Ordering::Greater, Ordering::Equal]
+        };
+        match other.accept(comparator) {
+            Ok(eval) => eval,
+            _ => false
         }
     }
 }
@@ -614,42 +749,42 @@ impl PartialOrd for Value {
 
             (Value::String(mine, _),
                 Value::String(theirs, _)) => {
-                mine.value.partial_cmp(&theirs.value)
+                mine.partial_cmp(theirs)
             },
 
             (Value::Regex(mine, _),
                 Value::Regex(theirs, _)) => {
-                mine.value.partial_cmp(&theirs.value)
+                mine.partial_cmp(theirs)
             },
 
             (Value::Char(mine, _),
                 Value::Char(theirs, _)) => {
-                mine.value.partial_cmp(&theirs.value)
+                mine.partial_cmp(theirs)
             },
 
             (Value::Bool(mine, _),
                 Value::Bool(theirs, _)) => {
-                mine.value.partial_cmp(&theirs.value)
+                mine.partial_cmp(theirs)
             },
 
             (Value::Int(mine, _),
                 Value::Int(theirs, _)) => {
-                mine.value.partial_cmp(&theirs.value)
+                mine.partial_cmp(theirs)
             },
 
             (Value::Float(mine, _),
                 Value::Float(theirs, _)) => {
-                mine.value.partial_cmp(&theirs.value)
+                mine.partial_cmp(theirs)
             },
 
             (Value::RangeInt(mine, _),
                 Value::RangeInt(theirs, _)) => {
-                mine.value.partial_cmp(&theirs.value)
+                mine.partial_cmp(theirs)
             },
 
             (Value::RangeFloat(mine, _),
                 Value::RangeFloat(theirs, _)) => {
-                mine.value.partial_cmp(&theirs.value)
+                mine.partial_cmp(theirs)
             },
 
             _ => None
