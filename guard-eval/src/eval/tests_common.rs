@@ -1,4 +1,5 @@
 use super::*;
+use crate::Comparison;
 
 #[derive(Debug)]
 pub(super) struct NoOpReporter{}
@@ -21,11 +22,11 @@ impl<'value> EvalReporter<'value> for NoOpReporter {
     }
 
     fn report_evaluation(&mut self,
-                         _value: ValueType<'value>,
-                         _data_file_name: &'value str,
-                         _expr: &'value Expr,
-                         _status: Status)
-        -> Result<(), EvaluationError<'value>> {
+		 status: Status,
+		 comparison: Comparison<'value>,
+		 data_file: &'value str,
+		 expr: &'value Expr) -> Result<(),
+		 EvaluationError<'value>> {
         Ok(())
     }
 }

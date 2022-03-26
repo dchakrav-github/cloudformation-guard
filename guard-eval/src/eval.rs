@@ -1,12 +1,4 @@
-use crate::{
-    EvaluationError,
-    Value,
-    EvalReporter,
-    Status,
-    DataFiles,
-    DataFile,
-    ValueType
-};
+use crate::{EvaluationError, Value, EvalReporter, Status, DataFiles, DataFile, ValueType, Comparison, BinaryComparison};
 
 use guard_lang::{
     Expr,
@@ -37,9 +29,10 @@ use guard_lang::{
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::rc::Rc;
 
 pub fn evaluate<'e, 's>(rule_file: &'s Expr,
-                    data: &'s DataFiles,
+                    data: &'s Value,
                     reporter: &'e mut dyn EvalReporter<'s>) -> Result<Status, EvaluationError<'s>>
 {
     let mut hierarchy = ScopeHierarchy {
@@ -82,17 +75,13 @@ pub fn evaluate<'e, 's>(rule_file: &'s Expr,
 }
 
 struct ScopeHierarchy<'value, 'report> {
-    roots: &'value Vec<DataFile>,
+    roots: &'value Value,
     scopes: Vec<Scope<'value>>,
     completed: Vec<Scope<'value>>,
     reporter: &'report mut dyn EvalReporter<'value>
 }
 
 impl<'v, 'r> ScopeHierarchy<'v, 'r> {
-    fn get_data_roots(&self) -> &'v DataFiles {
-        self.roots
-    }
-
     fn get_resolved_variable(&self, name: &str) -> Option<Vec<ValueType<'v>>> {
         for each_scope in &self.scopes {
             match each_scope.variables.get(name) {
@@ -264,63 +253,64 @@ impl<'c, 'v, 'r> Visitor<'v> for AssignHandler<'c, 'v, 'r> {
         if expr.accept(CheckValueLiteral{})? {
             return literal(expr)
         }
-        let mut converted = Vec::with_capacity(value.elements.len());
-        for each in &value.elements {
-            match each.accept(
-                AssignHandler{hierarchy: self.hierarchy})? {
-                SingleOrQuery::Single(v) => match v {
-                    ValueType::LiteralValue(e) => converted.push(Value::try_from(e)?),
-                    ValueType::ComputedValue(v) => converted.push(v),
-                    _ => unreachable!()
-                },
-                SingleOrQuery::Query(resolved) => {
-                    let mut value = Vec::with_capacity(resolved.len());
-                    for each in resolved {
-                        match each {
-                            ValueType::LiteralValue(e) => value.push(Value::try_from(e)?),
-                            ValueType::ComputedValue(v) => value.push(v),
-                            _ => unreachable!()
-                        }
-                    }
-                    converted.push(Value::List(value, Location::new(0, 0)));
-                }
-            }
-        }
-        Ok(SingleOrQuery::Single(ValueType::ComputedValue(
-            Value::List(converted, expr.get_location().clone())
-        )))
+        unimplemented!()
+//        let mut converted = Vec::with_capacity(value.elements.len());
+//        for each in &value.elements {
+//            match each.accept(
+//                AssignHandler{hierarchy: self.hierarchy})? {
+//                SingleOrQuery::Single(v) => match v {
+//                    ValueType::LiteralValue(e) => converted.push(Value::try_from(e)?),
+//                    _ => unreachable!()
+//                },
+//                SingleOrQuery::Query(resolved) => {
+//                    let mut value = Vec::with_capacity(resolved.len());
+//                    for each in resolved {
+//                        match each {
+//                            ValueType::LiteralValue(e) => value.push(Value::try_from(e)?),
+//                            ValueType::ComputedValue(v) => value.push(v),
+//                            _ => unreachable!()
+//                        }
+//                    }
+//                    converted.push(Value::List(value, Location::new(0, 0)));
+//                }
+//            }
+//        }
+//        Ok(SingleOrQuery::Single(ValueType::ComputedValue(
+//            Value::List(converted, expr.get_location().clone())
+//        )))
     }
 
     fn visit_map(self, expr: &'v Expr, value: &'v MapExpr) -> Result<Self::Value, Self::Error> {
         if expr.accept(CheckValueLiteral{})? {
             return literal(expr)
         }
-        let mut converted = indexmap::IndexMap::new();
-        for (key, value) in &value.entries {
-            let value =  match value.accept(
-                AssignHandler{hierarchy: self.hierarchy})? {
-                SingleOrQuery::Single(v) => match v {
-                    ValueType::LiteralValue(e) => Value::try_from(e)?,
-                    ValueType::ComputedValue(v) => v,
-                    _ => unreachable!()
-                },
-                SingleOrQuery::Query(resolved) => {
-                    let mut value = Vec::with_capacity(resolved.len());
-                    for each in resolved {
-                        match each {
-                            ValueType::LiteralValue(e) => value.push(Value::try_from(e)?),
-                            ValueType::ComputedValue(v) => value.push(v),
-                            _ => unreachable!()
-                        }
-                    }
-                    Value::List(value, Location::new(0, 0))
-                }
-            };
-            converted.insert(key.clone(), value);
-        }
-        Ok(SingleOrQuery::Single(ValueType::ComputedValue(
-            Value::Map(converted, expr.get_location().clone())
-        )))
+        unimplemented!()
+//        let mut converted = indexmap::IndexMap::new();
+//        for (key, value) in &value.entries {
+//            let value =  match value.accept(
+//                AssignHandler{hierarchy: self.hierarchy})? {
+//                SingleOrQuery::Single(v) => match v {
+//                    ValueType::LiteralValue(e) => Value::try_from(e)?,
+//                    ValueType::ComputedValue(v) => v,
+//                    _ => unreachable!()
+//                },
+//                SingleOrQuery::Query(resolved) => {
+//                    let mut value = Vec::with_capacity(resolved.len());
+//                    for each in resolved {
+//                        match each {
+//                            ValueType::LiteralValue(e) => value.push(Value::try_from(e)?),
+//                            ValueType::ComputedValue(v) => value.push(v),
+//                            _ => unreachable!()
+//                        }
+//                    }
+//                    Value::List(value, Location::new(0, 0))
+//                }
+//            };
+//            converted.insert(key.clone(), value);
+//        }
+//        Ok(SingleOrQuery::Single(ValueType::ComputedValue(
+//            Value::Map(converted, expr.get_location().clone())
+//        )))
     }
 
     fn visit_string(self, expr: &'v Expr, _value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
@@ -369,7 +359,6 @@ fn literal(expr: &Expr) -> Result<SingleOrQuery, EvaluationError> {
 
 struct FindFromDataFiles<'c, 'v, 'r> {
     hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
-    stack: Vec<ValueType<'v>>,
 }
 
 impl<'c, 'v, 'r> Visitor<'v> for FindFromDataFiles<'c, 'v, 'r> {
@@ -378,25 +367,25 @@ impl<'c, 'v, 'r> Visitor<'v> for FindFromDataFiles<'c, 'v, 'r> {
 
     fn visit_string(mut self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
         Ok('exit: loop {
-            for each in self.hierarchy.get_data_roots() {
-                if value.value == "*" {
-                    if let Value::List(v, _) = &each.root {
-                        for each in v {
-                            self.stack.push(ValueType::DataValue(each));
-                        }
-                        break 'exit self.stack;
-                    } else if let Value::Map(map, _) = &each.root {
-                        for each_value in map.values() {
-                            self.stack.push(ValueType::DataValue(each_value));
-                        }
-                        break 'exit self.stack;
+            let mut stack = Vec::new();
+            let each = self.hierarchy.roots;
+            if value.value == "*" {
+                if let Value::List(v, _) = each {
+                    for each in v {
+                        stack.push(ValueType::DataValue(each));
                     }
-                } else {
-                    if let Value::Map(map, _) = &each.root {
-                        if let Some(value) = map.get(&value.value) {
-                            self.stack.push(ValueType::DataValue(value));
-                            break 'exit self.stack;
-                        }
+                    break 'exit stack;
+                } else if let Value::Map(map, _) = each {
+                    for each_value in map.values() {
+                        stack.push(ValueType::DataValue(each_value));
+                    }
+                    break 'exit stack;
+                }
+            } else {
+                if let Value::Map(map, _) = each {
+                    if let Some(value) = map.get(&value.value) {
+                        stack.push(ValueType::DataValue(value));
+                        break 'exit stack;
                     }
                 }
             }
@@ -431,28 +420,27 @@ impl<'c, 'v, 'r> Visitor<'v> for FromIndexLookup<'c, 'v, 'r> {
                 let mut current: Vec<ValueType<'_>> = self.stack.drain(..).collect();
                 while let Some(top) = current.pop() {
                     match top {
-                        ValueType::DataValue(Value::List(list, _)) => {
+                        ValueType::DataValue(Value::List(ref list, _)) => {
                             let i = (if i < 0 { list.len() as i32 + i } else { i }) as usize;
                             if let Some(v) = list.get(i) {
                                 self.stack.push(ValueType::DataValue(v));
+                                continue
                             }
-                            else {
-                                self.hierarchy.reporter.report_missing_value(
-                                    top,
-                                    "",
-                                    expr
-                                )?;
-                            }
-                            continue
-                        },
-                        _ =>  {
                             self.hierarchy.reporter.report_mismatch_value_traversal(
-                                top,
+                                top.clone(),
+                                "",
+                                expr
+                            )?;
+                        },
+
+                        rest => {
+                            self.hierarchy.reporter.report_mismatch_value_traversal(
+                                rest,
                                 "",
                                 expr
                             )?;
                         }
-                    }
+                    };
                 }
                 Ok(self.stack)
             },
@@ -564,6 +552,28 @@ struct QueryHandler<'c, 'v, 'r> {
     stack: Vec<ValueType<'v>>,
 }
 
+struct AddRemoveScope<'c, 'v, 'r> {
+    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+}
+
+impl<'c, 'v , 'r> AddRemoveScope<'c, 'v, 'r> {
+    fn add_scope(&mut self, expr: &'v Expr) -> Result<(), EvaluationError<'v>> {
+        let scope = expr.accept(ExtractVariableExprs {
+            scope: Scope {
+                variables: HashMap::new(),
+                variable_definitions: HashMap::new()
+            }
+        })?;
+        self.hierarchy.add_scope(scope);
+        Ok(())
+    }
+}
+
+impl<'c, 'v , 'r> Drop for AddRemoveScope<'c, 'v, 'r> {
+    fn drop(&mut self) {
+        self.hierarchy.drop_scope();
+    }
+}
 
 impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
     type Value = Vec<ValueType<'v>>;
@@ -581,7 +591,7 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
 
     fn visit_string(mut self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
         if self.stack.is_empty() {
-            expr.accept(FindFromDataFiles{hierarchy: self.hierarchy, stack: self.stack})
+            expr.accept(FindFromDataFiles{hierarchy: self.hierarchy})
         }
         else  {
             if value.value == "this" {
@@ -595,6 +605,21 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
             }
 
         }
+    }
+
+    fn visit_filter(mut self, expr: &'v Expr, _value: &'v BlockExpr) -> Result<Self::Value, Self::Error> {
+        if self.stack.is_empty() {
+            return Ok(self.stack)
+        }
+
+        let mut current: Vec<ValueType<'_>> = self.stack.drain(..).collect();
+        let mut add_scope = AddRemoveScope{ hierarchy: self.hierarchy };
+        add_scope.add_scope(expr);
+        while let Some(top) = current.pop() {
+
+        }
+
+        todo!()
     }
 
     fn visit_variable_reference(mut self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
@@ -620,10 +645,10 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
             while let Some(top) = current.pop() {
                 match top {
                     ValueType::DataValue(Value::Map(map, _)) => {
-                        for each in values.iter() {
+                        for each in &values {
                             match each {
-                                ValueType::DataValue(v) =>
-                                    self.map_value(top.clone(), expr, *v, map)?,
+                                ValueType::DataValue(Value::String(v, _)) =>
+                                    self.map_key_value(top.clone(), expr, v, map)?,
 
                                 ValueType::LiteralValue(v) =>
                                     self.map_literal_expr(top.clone(), expr, v, map)?,
@@ -637,10 +662,10 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
                                 }
                             }
                         }
-                    }
-                    _ => {
+                    },
+                    rest => {
                         self.hierarchy.reporter.report_missing_value(
-                            top,
+                            rest,
                             "",
                             expr
                         )?;
@@ -657,33 +682,6 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
 }
 
 impl<'c, 'v, 'r> QueryHandler<'c, 'v, 'r> {
-    fn map_value(&mut self,
-                 top: ValueType<'v>,
-                 expr: &'v Expr,
-                 key: &'v Value,
-                 map: &'v indexmap::IndexMap<String, Value>) -> Result<(), EvaluationError<'v>> {
-        match key {
-            Value::String(value, _) => {
-                self.map_key_value(top, expr, value.as_str(), map)?;
-            },
-
-            Value::List(list, _) => {
-                for each in list {
-                    self.map_value(top.clone(), expr, each, map)?;
-                }
-            },
-
-            _ => {
-                self.hierarchy.reporter.report_missing_value(
-                    top,
-                    "",
-                    expr
-                )?;
-            }
-        }
-        Ok(())
-    }
-
     fn map_key_value(&mut self,
                      top: ValueType<'v>,
                      expr: &'v Expr,
@@ -751,6 +749,36 @@ mod query_tests;
 #[cfg(test)]
 mod tests_common;
 
+
+struct AndBinaryOperationsHandler<'c, 'v, 'r> {
+    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+    stack: Vec<ValueType<'v>>,
+}
+
+impl<'c, 'v, 'r> Visitor<'v> for BinaryOperationsHandler<'c, 'v, 'r> {
+    type Value = bool;
+    type Error = EvaluationError<'v>;
+
+    fn visit_binary_operation(self, expr: &'v Expr, value: &'v BinaryExpr) -> Result<Self::Value, Self::Error> {
+        match value.operator {
+            BinaryOperator::And => {
+
+            },
+
+            BinaryOperator::Or => {
+
+            },
+
+            _ =>
+        }
+        todo!()
+    }
+
+    fn visit_any(self, expr: &'v Expr) -> Result<Self::Value, Self::Error> {
+        todo!()
+    }
+}
+
 struct BinaryOperationsHandler<'c, 'v, 'r> {
     hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
     stack: Vec<ValueType<'v>>,
@@ -763,21 +791,28 @@ impl<'c, 'v, 'r> Visitor<'v> for BinaryOperationsHandler<'c, 'v, 'r> {
     fn visit_binary_operation(mut self,
                               expr: &'v Expr,
                               value: &'v BinaryExpr) -> Result<Self::Value, Self::Error> {
-        if value.operator != BinaryOperator::Equals             ||
-           value.operator != BinaryOperator::NotEquals          ||
-           value.operator != BinaryOperator::LesserThanEquals   ||
-           value.operator != BinaryOperator::Lesser             ||
-           value.operator != BinaryOperator::GreaterThanEquals  ||
-           value.operator != BinaryOperator::Greater            ||
-           value.operator != BinaryOperator::NotIn              ||
-           value.operator != BinaryOperator::In {
-            return self.visit_any(expr)
+        match value.operator {
+            BinaryOperator::Equals             |
+            BinaryOperator::NotEquals          |
+            BinaryOperator::LesserThanEquals   |
+            BinaryOperator::Lesser             |
+            BinaryOperator::GreaterThanEquals  |
+            BinaryOperator::Greater            |
+            BinaryOperator::NotIn              |
+            BinaryOperator::In  => {},
+            _ => return self.visit_any(expr)
         }
 
-        let lhs_query = value.lhs.accept(QueryHandler{hierarchy: self.hierarchy, stack: self.stack.clone()})?;
-        let rhs_query = value.rhs.accept(QueryHandler{hierarchy: self.hierarchy, stack: self.stack})?;
+        let lhs_query = match &value.lhs {
+            Expr::Select(_) => SingleOrQuery::Query(value.lhs.accept(QueryHandler{hierarchy: self.hierarchy, stack: self.stack.clone()})?),
+            _ => SingleOrQuery::Single(ValueType::LiteralValue(&value.lhs))
+        };
+        let rhs_query = match &value.rhs {
+            Expr::Select(_) => SingleOrQuery::Query(value.rhs.accept(QueryHandler{hierarchy: self.hierarchy, stack: self.stack.clone()})?),
+            _ => SingleOrQuery::Single(ValueType::LiteralValue(&value.rhs))
+        };
 
-        Ok(false)
+        Ok(check_operator(value.operator, expr, lhs_query, rhs_query, self.hierarchy.reporter)?)
     }
 
 
@@ -788,72 +823,116 @@ impl<'c, 'v, 'r> Visitor<'v> for BinaryOperationsHandler<'c, 'v, 'r> {
 
 fn check_operator<'v>(
     op: BinaryOperator
-    , lhs: Vec<ValueType<'v>>
-    , rhs: Vec<ValueType<'v>>) -> Result<bool, EvaluationError<'v>>
+    , binop: &'v Expr
+    , lhs: SingleOrQuery<'v>
+    , rhs: SingleOrQuery<'v>
+    , reporter: &mut dyn EvalReporter<'v>) -> Result<bool, EvaluationError<'v>>
 {
     let mut result = true;
-    for each_lhs in lhs {
-        match each_lhs {
-            ValueType::LiteralValue(literal) => {
-                result &= check_literal_operator(op, literal, &rhs)?;
-            },
-            rest => {
-                let value = match rest {
-                    ValueType::DataValue(ref v) => *v,
-                    ValueType::ComputedValue(ref v) => v,
-                    _ => unreachable!()
-                };
+    match lhs {
+        SingleOrQuery::Single(ValueType::LiteralValue(lhs)) => {
+            match rhs {
+                SingleOrQuery::Single(ValueType::LiteralValue(rhs)) => {
+                    result &= match_operator_literal(op, lhs, rhs);
+                    let status = if result { Status::PASS } else { Status::FAIL };
+                    reporter.report_evaluation(
+                        status,
+                        Comparison::Binary(BinaryComparison {
+                            operator: op,
+                            lhs: ValueType::LiteralValue(lhs),
+                            rhs: ValueType::LiteralValue(rhs),
+                        }),
+                        "",
+                        binop
+                    )?;
+                },
+                SingleOrQuery::Query(rhs) => {
+                    result &= check_literal_operator(op, binop, lhs, &rhs, reporter)?;
+                },
+                _ => unreachable!()
             }
         }
-    }
-    Ok(result)
-}
-
-
-fn check_value_operator<'v>(
-    op: BinaryOperator
-    , literal: &'v Value
-    , rhs: &Vec<ValueType<'v>>) -> Result<bool, EvaluationError<'v>>
-{
-    let mut result = true;
-    for each in rhs {
-        match each {
-            ValueType::LiteralValue(rhs) => {
-                result &= match_operator_value(op, literal, *rhs);
-            },
-            rest => {
-                let value = match rest {
-                    ValueType::DataValue(ref v) => *v,
-                    ValueType::ComputedValue(ref v) => v,
-                    _ => unreachable!()
-                };
-                result &= match_in_both_values(literal, value);
+        SingleOrQuery::Query(lhs) => {
+            match rhs {
+                SingleOrQuery::Single(ValueType::LiteralValue(rhs)) => {
+                    for each_lhs in lhs {
+                        let value = match each_lhs {
+                            ValueType::DataValue(ref v) => *v,
+                            _ => unreachable!()
+                        };
+                        result &= match_operator_value(op, value, rhs);
+                        let status = if result { Status::PASS } else { Status::FAIL };
+                        reporter.report_evaluation(
+                            status,
+                            Comparison::Binary(BinaryComparison {
+                                operator: op,
+                                lhs: each_lhs,
+                                rhs: ValueType::LiteralValue(rhs),
+                            }),
+                            "",
+                            binop
+                        )?;
+                    }
+                },
+                SingleOrQuery::Query(rhs) => {
+                    for each_lhs in lhs {
+                        let lhs_value = match &each_lhs {
+                            ValueType::DataValue(v) => *v,
+                            _ => unreachable!()
+                        };
+                        for each in &rhs {
+                            let value = match each {
+                                ValueType::DataValue(ref v) => *v,
+                                _ => unreachable!()
+                            };
+                            result &= match_in_both_values(lhs_value, value);
+                            let status = if result { Status::PASS } else { Status::FAIL };
+                            reporter.report_evaluation(
+                                status,
+                                Comparison::Binary(BinaryComparison {
+                                    operator: op,
+                                    lhs: each_lhs.clone(),
+                                    rhs: each.clone()
+                                }),
+                                "",
+                                binop
+                            )?;
+                        }
+                    }
+                },
+                _ => unreachable!()
             }
-        }
+        },
+        _ => unreachable!()
     }
     Ok(result)
 }
 
 fn check_literal_operator<'v>(
     op: BinaryOperator
+    , binop: &'v Expr
     , literal: &'v Expr
-    , rhs: &Vec<ValueType<'v>>) -> Result<bool, EvaluationError<'v>>
+    , rhs: &Vec<ValueType<'v>>
+    , reporter: &mut dyn EvalReporter<'v>) -> Result<bool, EvaluationError<'v>>
 {
     let mut result = true;
     for each in rhs {
-        match each {
-            ValueType::LiteralValue(rhs) => {
-                result &= match_operator_literal(op, literal, *rhs);
-            },
-            rest => {
-                let value = match rest {
-                    ValueType::DataValue(ref v) => *v,
-                    ValueType::ComputedValue(ref v) => v,
-                    _ => unreachable!()
-                };
-                result &= match_operator_literal_with_value(op, literal, value);
-            }
-        }
+        let value = match each {
+            ValueType::DataValue(v) => *v,
+            _ => unreachable!()
+        };
+        result &= match_operator_literal_with_value(op, literal, value);
+        let status = if result { Status::PASS } else { Status::FAIL };
+        reporter.report_evaluation(
+            status,
+            Comparison::Binary(BinaryComparison {
+                operator: op,
+                lhs: ValueType::LiteralValue(literal),
+                rhs: each.clone()
+            }),
+            "",
+            binop
+        )?;
     }
     Ok(result)
 }
@@ -868,8 +947,8 @@ fn match_operator_literal_with_value<'v>(
         BinaryOperator::LesserThanEquals => rhs_literal > lhs_literal,
         BinaryOperator::Greater => rhs_literal <= lhs_literal,
         BinaryOperator::GreaterThanEquals => rhs_literal < lhs_literal,
-        BinaryOperator::Equals => lhs_literal == rhs_literal,
-        BinaryOperator::NotEquals => lhs_literal != rhs_literal,
+        BinaryOperator::Equals => rhs_literal == lhs_literal,
+        BinaryOperator::NotEquals => rhs_literal != lhs_literal,
         BinaryOperator::In => match_in_literal_with_value(lhs_literal, rhs_literal),
         BinaryOperator::NotIn => !match_in_literal_with_value(lhs_literal, rhs_literal),
         _ => unreachable!()

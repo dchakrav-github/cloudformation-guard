@@ -1,7 +1,8 @@
 use std::fmt::{Formatter, Debug};
-use guard_lang::{Location, RangeType, LangError, Expr};
+use guard_lang::{Location, RangeType, LangError, Expr, BinaryOperator, UnaryOperator};
 use yaml_rust::ScanError;
 use std::path::PathBuf;
+use serde::Serialize;
 
 ///
 /// Errors
@@ -86,7 +87,7 @@ impl From<std::io::Error> for EvaluationError<'_> {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Serialize)]
 pub enum Value {
     BadValue(String, Location),
     Null(Location),
@@ -102,20 +103,36 @@ pub enum Value {
     Map(indexmap::IndexMap<String, Value>, Location),
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum Status {
     PASS,
     FAIL,
     SKIP
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ValueType<'value> {
     DataValue(&'value Value),
     LiteralValue(&'value Expr),
-    ComputedValue(Value),
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct BinaryComparison<'v> {
+    pub operator: BinaryOperator,
+    pub lhs: ValueType<'v>,
+    pub rhs: ValueType<'v>
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UnaryComparison<'v> {
+    pub operator: UnaryOperator,
+    pub argument: ValueType<'v>
+}
+
+pub enum Comparison<'v> {
+    Binary(BinaryComparison<'v>),
+    Unary(UnaryComparison<'v>),
+}
 
 pub trait EvalReporter<'value> : Debug {
     fn report_missing_value(
@@ -132,10 +149,10 @@ pub trait EvalReporter<'value> : Debug {
 
     fn report_evaluation(
         &mut self,
-        value: ValueType<'value>,
-        data_file_name: &'value str,
-        expr: &'value Expr,
-        status: Status) -> Result<(), EvaluationError<'value>>;
+        status: Status,
+        comparison: Comparison<'value>,
+        data_file: &'value str,
+        expr: &'value Expr) -> Result<(), EvaluationError<'value>>;
 }
 
 #[derive(Debug)]

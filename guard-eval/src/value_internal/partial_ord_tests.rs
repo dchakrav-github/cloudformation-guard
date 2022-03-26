@@ -209,9 +209,9 @@ fn test_other_binary_operators() {
     let value = read_from("10");
     assert_eq!(value.is_ok(), true, "{:?}", value);
     let value = value.unwrap();
-    assert_eq!(value < expr, false);
-    assert_eq!(value > expr, true);
-    assert_eq!(value <= expr, false);
-    assert_eq!(value >= expr, true);
+    assert_eq!(value < expr, true);
+    assert_eq!(value > expr, false);
+    assert_eq!(value <= expr, true);
+    assert_eq!(value >= expr, false);
 
 }

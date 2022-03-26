@@ -2,19 +2,17 @@ use super::*;
 use crate::eval::tests_common::NoOpReporter;
 use std::path::PathBuf;
 use guard_lang::Span;
+use crate::Comparison;
 
 #[test]
 fn test_simple_query() {
     let value = super::tests_common::get_value();
     assert_eq!(value.is_ok(), true);
     let value = value.unwrap();
-    let data_files = vec![DataFile {
-        root: value, file: PathBuf::new()
-    }];
     let mut reporter = NoOpReporter{};
     let mut hierarchy = ScopeHierarchy {
         reporter: &mut reporter,
-        roots: &data_files,
+        roots: &value,
         scopes: Vec::new(),
         completed: Vec::new()
     };
@@ -65,9 +63,6 @@ fn test_simple_query() {
 fn test_simple_query_missing_values() {
     let value = r###"Resources: {}"###;
     let value = crate::value_internal::read_from(value).unwrap();
-    let data_files = vec![DataFile {
-        root: value, file: PathBuf::new()
-    }];
     #[derive(Debug)]
     struct Reporter{}
     impl<'v> EvalReporter<'v> for Reporter {
@@ -80,7 +75,7 @@ fn test_simple_query_missing_values() {
             todo!()
         }
 
-        fn report_evaluation(&mut self, value: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr, status: Status) -> Result<(), EvaluationError<'v>> {
+        fn report_evaluation(&mut self, status: Status, comparison: Comparison<'v>, data_file: &'v str, expr: &'v Expr) -> Result<(), EvaluationError<'v>> {
             todo!()
         }
     }
@@ -91,7 +86,7 @@ fn test_simple_query_missing_values() {
     let mut reporter = Reporter{};
     let mut hierarchy = ScopeHierarchy {
         reporter: &mut reporter,
-        roots: &data_files,
+        roots: &value,
         scopes: Vec::new(),
         completed: Vec::new()
     };
@@ -102,4 +97,44 @@ fn test_simple_query_missing_values() {
     stack = r.unwrap();
     assert_eq!(stack.is_empty(), true);
 
+}
+
+#[test]
+fn test_binary_comparison() {
+    let value = r###"
+    Resources:
+        iam:
+            Type: AWS::IAM::Role
+            Properties:
+                Action: Allow
+                Principal: '*'
+                Resource: '*'
+        iam2:
+            Type: AWS::IAM::Role
+            Properties:
+                Action: Allow
+                Principal:
+                  AWS: s3.amazonaws.com
+                Resource: '*'
+    "###;
+    let value = crate::value_internal::read_from(value).unwrap();
+    let binary_cmp = r#"Resources.*.Type == /Role$/"#;
+    let cmp = guard_lang::parse_unary_binary_or_block_expr(Span::new_extra(binary_cmp, ""));
+    assert_eq!(cmp.is_ok(), true, "{:?}", cmp);
+    let cmp = cmp.unwrap().1;
+    let mut reporter = NoOpReporter{};
+    let mut hierarchy = ScopeHierarchy {
+        reporter: &mut reporter,
+        roots: &value,
+        scopes: Vec::new(),
+        completed: Vec::new()
+    };
+
+    let binop = BinaryOperationsHandler {
+        hierarchy: &mut hierarchy,
+        stack: Vec::new()
+    };
+    let result = cmp.accept(binop);
+    assert_eq!(result.is_ok(), true, "{:?}", result);
+    assert_eq!(result.unwrap(), true);
 }

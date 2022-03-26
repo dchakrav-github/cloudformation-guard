@@ -637,6 +637,7 @@ impl<'s> Visitor<'_> for Comparator<'s> {
     fn visit_int(self, _expr: &'_ Expr, value: &'_ IntExpr) -> Result<Self::Value, Self::Error> {
         Ok(match self.value {
             Value::Int(i, _) => i.partial_cmp(&value.value).map_or(false, |order| self.ordering.contains(&order)),
+            Value::Float(f, _) => f.partial_cmp(&(value.value as f64)).map_or(false, |order| self.ordering.contains(&order)),
             Value::List(list, _) => {
                 let mut result = true;
                 for each in list {

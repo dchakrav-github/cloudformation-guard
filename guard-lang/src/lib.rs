@@ -48,7 +48,7 @@ pub fn parse_json_value(value: &str, file: &str) -> Result<Expr> {
     }
 }
 
-pub use parser::{parse_select, parse_value};
+pub use parser::{parse_select, parse_value, parse_unary_binary_or_block_expr};
 
 
 #[cfg(test)]

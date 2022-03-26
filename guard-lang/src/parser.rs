@@ -740,7 +740,7 @@ fn binary_cmp_operator(input: Span) -> IResult<Span, BinaryOperator> {
     ))(input)
 }
 
-fn parse_binary_bool_expr(input: Span) -> IResult<Span, Expr> {
+pub fn parse_binary_bool_expr(input: Span) -> IResult<Span, Expr> {
     let location = Location::new(input.location_line(), input.get_column());
     let (input, (lhs, operator, rhs)) = tuple((
         query_or_value,
@@ -1045,7 +1045,7 @@ where
     }
 }
 
-fn parse_unary_binary_or_block_expr(input: Span) -> IResult<Span, Expr> {
+pub fn parse_unary_binary_or_block_expr(input: Span) -> IResult<Span, Expr> {
     parse_unary_binary_or_block_expr2(
         alt((
             strip_comments_space( alt((
