@@ -14,6 +14,8 @@ guard-lang = { path = "../guard-lang" }
 walkdir = "2.3.2"
 yaml-rust = {git = "https://github.com/dchakrav-github/yaml-rust"}
 regex = "1.5.5"
+Inflector = "0.11.4"
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 anyhow = "1.0.56"

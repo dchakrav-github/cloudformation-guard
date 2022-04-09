@@ -1,41 +1,44 @@
 use crate::{EvaluationError, Value, EvalReporter, Status, DataFiles, DataFile, ValueType, Comparison, BinaryComparison};
 
 use guard_lang::{
-    Expr,
-    FileExpr,
-    Visitor,
-    StringExpr,
-    RegexExpr,
-    CharExpr,
-    BoolExpr,
-    IntExpr,
-    FloatExpr,
-    RangeIntExpr,
-    RangeFloatExpr,
-    BinaryExpr,
-    BinaryOperator,
-    ArrayExpr,
-    MapExpr,
-    RuleExpr,
-    RuleClauseExpr,
-    LetExpr,
-    WhenExpr,
-    QueryExpr,
-    UnaryExpr,
-    Location,
-    BlockExpr,
-    BlockClauseExpr
-};
+      Expr
+	, FileExpr
+	, Visitor
+	, StringExpr
+	, RegexExpr
+	, CharExpr
+	, BoolExpr
+	, IntExpr
+	, FloatExpr
+	, RangeIntExpr
+	, RangeFloatExpr
+	, BinaryExpr
+	, BinaryOperator
+	, ArrayExpr
+	, MapExpr
+	, RuleExpr
+	, RuleClauseExpr
+	, LetExpr
+	, WhenExpr
+	, QueryExpr
+	, UnaryExpr
+	, Location
+	, BlockExpr
+	, BlockClauseExpr
+	, UnaryOperator};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::rc::Rc;
+use std::io::Error;
+use inflector::cases::*;
+use lazy_static::lazy_static;
 
 pub fn evaluate<'e, 's>(rule_file: &'s Expr,
                     data: &'s Value,
                     reporter: &'e mut dyn EvalReporter<'s>) -> Result<Status, EvaluationError<'s>>
 {
-    let mut hierarchy = ScopeHierarchy {
+    let mut hierarchy = RootScopeHierarchy {
         roots: data,
         scopes: Vec::with_capacity(4),
         completed: Vec::with_capacity(4),
@@ -51,11 +54,11 @@ pub fn evaluate<'e, 's>(rule_file: &'s Expr,
     hierarchy.add_scope(rule_file.accept(variable_extractor)?);
 
     //hierarchy.scopes.push(root);
-    struct RootContext<'context, 'value, 'report> {
+    struct RootContext<'context, 'value> {
         scope: &'context mut Scope<'value>,
-        hierarchy: &'context mut ScopeHierarchy<'value, 'report>
+        hierarchy: &'context mut dyn ScopeHierarchy<'value>
     }
-    impl<'context, 'value, 'report> Visitor<'value> for RootContext<'context, 'value, 'report> {
+    impl<'context, 'value> Visitor<'value> for RootContext<'context, 'value> {
         type Value = Status;
         type Error = EvaluationError<'value>;
 
@@ -74,15 +77,74 @@ pub fn evaluate<'e, 's>(rule_file: &'s Expr,
     todo!()
 }
 
-struct ScopeHierarchy<'value, 'report> {
+#[derive(Debug)]
+struct RootScopeHierarchy<'value, 'reporter> {
     roots: &'value Value,
     scopes: Vec<Scope<'value>>,
     completed: Vec<Scope<'value>>,
-    reporter: &'report mut dyn EvalReporter<'value>
+    reporter: &'reporter mut dyn EvalReporter<'value>
 }
 
-impl<'v, 'r> ScopeHierarchy<'v, 'r> {
-    fn get_resolved_variable(&self, name: &str) -> Option<Vec<ValueType<'v>>> {
+trait ScopeHierarchy<'v> : EvalReporter<'v> {
+    fn get_resolved_variable(&mut self, name: &str) -> Option<Vec<ValueType<'v>>> {
+        match self.get_parent() {
+            Some(parent) => parent.get_resolved_variable(name),
+            None => None
+        }
+    }
+
+    fn get_root(&mut self) -> &'v Value;
+
+    fn get_variable_expression(&mut self, name: &str) -> Result<(usize, &'v LetExpr), EvaluationError<'v>> {
+        match self.get_parent() {
+            Some(parent) => parent.get_variable_expression(name),
+            None => Err(EvaluationError::ComputationError(
+                format!("Variable name {} could nt be found", name)
+            ))
+        }
+    }
+
+    fn add_variable_resolution(&mut self, scope_idx: usize, name: &'v str, value: Vec<ValueType<'v>>) -> Result<(), EvaluationError<'v>>{
+        match self.get_parent() {
+            Some(parent) => parent.add_variable_resolution(scope_idx, name, value),
+            None => Err(EvaluationError::ComputationError(
+                format!("Could not add variable resolution to scope {} could nt be found", name)
+            ))
+        }
+    }
+
+    fn resolve_rule<'s>(&mut self, name: &str) -> Result<Status, EvaluationError<'s>> {
+        match self.get_parent() {
+            Some(parent) => parent.resolve_rule(name),
+            None => Err(EvaluationError::ComputationError(
+                format!("Rule was not resolved {}", name)
+            ))
+        }
+    }
+
+    fn add_scope(&mut self, scope: Scope<'v>) -> Result<(), EvaluationError<'v>> {
+        match self.get_parent() {
+            Some(parent) => parent.add_scope(scope),
+            None => Err(EvaluationError::ComputationError(
+                format!("Can not add scope")
+            ))
+        }
+    }
+
+    fn drop_scope(&mut self) -> Result<(), EvaluationError<'v>>{
+        match self.get_parent() {
+            Some(parent) => parent.drop_scope(),
+            None => Err(EvaluationError::ComputationError(
+                format!("Cannot drop scope")
+            ))
+        }
+    }
+
+    fn get_parent(&mut self) -> Option<&mut dyn ScopeHierarchy<'v>>;
+}
+
+impl<'v, 'r> ScopeHierarchy<'v> for RootScopeHierarchy<'v, 'r> {
+    fn get_resolved_variable(&mut self, name: &str) -> Option<Vec<ValueType<'v>>> {
         for each_scope in &self.scopes {
             match each_scope.variables.get(name) {
                 Some(v) => return Some(v.clone()),
@@ -92,7 +154,11 @@ impl<'v, 'r> ScopeHierarchy<'v, 'r> {
         None
     }
 
-    fn get_variable_expression(&self, name: &str) -> Result<(usize, &'v LetExpr), EvaluationError<'v>> {
+    fn get_root(&mut self) -> &'v Value {
+        self.roots
+    }
+
+    fn get_variable_expression(&mut self, name: &str) -> Result<(usize, &'v LetExpr), EvaluationError<'v>> {
         for (idx, each_scope) in self.scopes.iter().enumerate() {
             match each_scope.variable_definitions.get(name) {
                 Some(v) => return Ok((idx, *v)),
@@ -103,22 +169,44 @@ impl<'v, 'r> ScopeHierarchy<'v, 'r> {
             format!("Variable {} could not resolved in any scope", name)))
     }
 
-    fn add_variable_resolution(&mut self, scope_idx: usize, name: &'v str, value: Vec<ValueType<'v>>) {
+    fn add_variable_resolution(&mut self, scope_idx: usize, name: &'v str, value: Vec<ValueType<'v>>) -> Result<(), EvaluationError<'v>> {
         self.scopes.get_mut(scope_idx).unwrap().variables.insert(name, value);
+        Ok(())
     }
 
-    fn resolve_rule<'s>(&mut self, name: &str) -> Status {
+
+    fn resolve_rule<'s>(&mut self, name: &str) -> Result<Status, EvaluationError<'s>> {
         todo!()
     }
 
-    fn add_scope(&mut self, scope: Scope<'v>) {
+    fn add_scope(&mut self, scope: Scope<'v>) -> Result<(), EvaluationError<'v>> {
         self.scopes.insert(0, scope);
+        Ok(())
     }
 
-    fn drop_scope(&mut self) {
+    fn drop_scope(&mut self) -> Result<(), EvaluationError<'v>> {
         if !self.scopes.is_empty() {
             self.completed.insert(0, self.scopes.remove(0));
         }
+        Ok(())
+    }
+
+    fn get_parent(&mut self) -> Option<&mut dyn ScopeHierarchy<'v>> {
+        None
+    }
+}
+
+impl<'v, 'r> EvalReporter<'v> for RootScopeHierarchy<'v, 'r> {
+    fn report_missing_value(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), Error> {
+        self.reporter.report_missing_value(until.clone(), data_file_name, expr)
+    }
+
+    fn report_mismatch_value_traversal(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), Error> {
+        self.reporter.report_mismatch_value_traversal(until, data_file_name, expr)
+    }
+
+    fn report_evaluation(&mut self, status: Status, comparison: Comparison<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), Error> {
+        self.reporter.report_evaluation(status, comparison, data_file_name, expr)
     }
 }
 
@@ -218,8 +306,8 @@ impl<'v> Visitor<'v> for CheckValueLiteral {
     }
 }
 
-struct AssignHandler<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>
+struct AssignHandler<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>
 }
 
 enum SingleOrQuery<'v> {
@@ -227,7 +315,7 @@ enum SingleOrQuery<'v> {
     Query(Vec<ValueType<'v>>)
 }
 
-impl<'c, 'v, 'r> Visitor<'v> for AssignHandler<'c, 'v, 'r> {
+impl<'c, 'v> Visitor<'v> for AssignHandler<'c, 'v> {
     type Value = SingleOrQuery<'v>;
     type Error = EvaluationError<'v>;
 
@@ -357,18 +445,18 @@ fn literal(expr: &Expr) -> Result<SingleOrQuery, EvaluationError> {
     Ok(SingleOrQuery::Single(ValueType::LiteralValue(expr)))
 }
 
-struct FindFromDataFiles<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+struct FindFromDataFiles<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>,
 }
 
-impl<'c, 'v, 'r> Visitor<'v> for FindFromDataFiles<'c, 'v, 'r> {
+impl<'c, 'v> Visitor<'v> for FindFromDataFiles<'c, 'v> {
     type Value = Vec<ValueType<'v>>;
     type Error = EvaluationError<'v>;
 
-    fn visit_string(mut self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
+    fn visit_string(self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
         Ok('exit: loop {
             let mut stack = Vec::new();
-            let each = self.hierarchy.roots;
+            let each = self.hierarchy.get_root();
             if value.value == "*" {
                 if let Value::List(v, _) = each {
                     for each in v {
@@ -392,7 +480,7 @@ impl<'c, 'v, 'r> Visitor<'v> for FindFromDataFiles<'c, 'v, 'r> {
             return Err(EvaluationError::ComputationError(
                 format!("Could not find any datafile that satisfies the query {:?}. Data file {:?}",
                         expr,
-                        self.hierarchy.roots)
+                        self.hierarchy.get_root())
             ))
         })
     }
@@ -405,12 +493,12 @@ impl<'c, 'v, 'r> Visitor<'v> for FindFromDataFiles<'c, 'v, 'r> {
     }
 }
 
-struct FromIndexLookup<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+struct FromIndexLookup<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>,
     stack: Vec<ValueType<'v>>,
 }
 
-impl<'c, 'v, 'r> Visitor<'v> for FromIndexLookup<'c, 'v, 'r> {
+impl<'c, 'v> Visitor<'v> for FromIndexLookup<'c, 'v> {
     type Value = Vec<ValueType<'v>>;
     type Error = EvaluationError<'v>;
 
@@ -426,7 +514,7 @@ impl<'c, 'v, 'r> Visitor<'v> for FromIndexLookup<'c, 'v, 'r> {
                                 self.stack.push(ValueType::DataValue(v));
                                 continue
                             }
-                            self.hierarchy.reporter.report_mismatch_value_traversal(
+                            self.hierarchy.report_mismatch_value_traversal(
                                 top.clone(),
                                 "",
                                 expr
@@ -434,7 +522,7 @@ impl<'c, 'v, 'r> Visitor<'v> for FromIndexLookup<'c, 'v, 'r> {
                         },
 
                         rest => {
-                            self.hierarchy.reporter.report_mismatch_value_traversal(
+                            self.hierarchy.report_mismatch_value_traversal(
                                 rest,
                                 "",
                                 expr
@@ -458,24 +546,37 @@ impl<'c, 'v, 'r> Visitor<'v> for FromIndexLookup<'c, 'v, 'r> {
     }
 }
 
-struct FromQueryIndexLookup<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+struct FromQueryIndexLookup<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>,
     stack: Vec<ValueType<'v>>,
 }
 
-impl<'c, 'v, 'r> Visitor<'v> for FromQueryIndexLookup<'c, 'v, 'r> {
+lazy_static! {
+    static ref CONVERTERS: &'static [(fn(&str) -> bool, fn(&str) -> String)] =
+        &[
+            (camelcase::is_camel_case, camelcase::to_camel_case),
+            (classcase::is_class_case, classcase::to_class_case),
+            (kebabcase::is_kebab_case, kebabcase::to_kebab_case),
+            (pascalcase::is_pascal_case, pascalcase::to_pascal_case),
+            (snakecase::is_snake_case, snakecase::to_snake_case),
+            (titlecase::is_title_case, titlecase::to_title_case),
+            (traincase::is_train_case, traincase::to_train_case),
+        ];
+}
+
+impl<'c, 'v> Visitor<'v> for FromQueryIndexLookup<'c, 'v> {
     type Value = Vec<ValueType<'v>>;
     type Error = EvaluationError<'v>;
 
     fn visit_string(mut self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
         let mut current: Vec<ValueType<'_>> = self.stack.drain(..).collect();
-        while let Some(top) = current.pop() {
+        'top: while let Some(top) = current.pop() {
             match top {
                 ValueType::DataValue(Value::Map(map, _)) => {
                     match value.value.as_str() {
                         "*" => {
                             if map.is_empty() {
-                                self.hierarchy.reporter.report_missing_value(
+                                self.hierarchy.report_missing_value(
                                     top,
                                     "",
                                     expr
@@ -493,7 +594,13 @@ impl<'c, 'v, 'r> Visitor<'v> for FromQueryIndexLookup<'c, 'v, 'r> {
                                     self.stack.push(ValueType::DataValue(v));
                                 },
                                 None => {
-                                    self.hierarchy.reporter.report_missing_value(
+                                    for (_is_case_type, convert_case_type) in CONVERTERS.iter() {
+                                        if let Some(value) = map.get(&convert_case_type(rest)) {
+                                            self.stack.push(ValueType::DataValue(value));
+                                            continue 'top;
+                                        }
+                                    }
+                                    self.hierarchy.report_missing_value(
                                         top,
                                         "",
                                         expr
@@ -507,7 +614,7 @@ impl<'c, 'v, 'r> Visitor<'v> for FromQueryIndexLookup<'c, 'v, 'r> {
                     match value.value.as_str() {
                         "*" => {
                             if list.is_empty() {
-                                self.hierarchy.reporter.report_missing_value(
+                                self.hierarchy.report_missing_value(
                                     top,
                                     "",
                                     expr
@@ -519,20 +626,24 @@ impl<'c, 'v, 'r> Visitor<'v> for FromQueryIndexLookup<'c, 'v, 'r> {
                             }
                         },
                         _ => {
-                            self.hierarchy.reporter.report_mismatch_value_traversal(
+                            self.hierarchy.report_mismatch_value_traversal(
                                 top,
                                 "",
                                 expr
                             )?;
                         }
                     }
-                }
-                _ => {
-                    self.hierarchy.reporter.report_mismatch_value_traversal(
-                        top,
-                        "",
-                        expr
-                    )?;
+                },
+
+                rest => {
+                    match value.value.as_str() {
+                        "*" => self.stack.push(rest),
+                        _   => self.hierarchy.report_mismatch_value_traversal(
+                            rest,
+                            "",
+                            expr
+                        )?
+                    }
                 }
             }
         }
@@ -547,16 +658,16 @@ impl<'c, 'v, 'r> Visitor<'v> for FromQueryIndexLookup<'c, 'v, 'r> {
     }
 }
 
-struct QueryHandler<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+struct QueryHandler<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>,
     stack: Vec<ValueType<'v>>,
 }
 
-struct AddRemoveScope<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+struct AddRemoveScope<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>,
 }
 
-impl<'c, 'v , 'r> AddRemoveScope<'c, 'v, 'r> {
+impl<'c, 'v > AddRemoveScope<'c, 'v> {
     fn add_scope(&mut self, expr: &'v Expr) -> Result<(), EvaluationError<'v>> {
         let scope = expr.accept(ExtractVariableExprs {
             scope: Scope {
@@ -569,13 +680,13 @@ impl<'c, 'v , 'r> AddRemoveScope<'c, 'v, 'r> {
     }
 }
 
-impl<'c, 'v , 'r> Drop for AddRemoveScope<'c, 'v, 'r> {
+impl<'c, 'v > Drop for AddRemoveScope<'c, 'v> {
     fn drop(&mut self) {
         self.hierarchy.drop_scope();
     }
 }
 
-impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
+impl<'c, 'v> Visitor<'v> for QueryHandler<'c, 'v> {
     type Value = Vec<ValueType<'v>>;
     type Error = EvaluationError<'v>;
 
@@ -589,7 +700,7 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
         Ok(self.stack)
     }
 
-    fn visit_string(mut self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
+    fn visit_string(self, expr: &'v Expr, value: &'v StringExpr) -> Result<Self::Value, Self::Error> {
         if self.stack.is_empty() {
             expr.accept(FindFromDataFiles{hierarchy: self.hierarchy})
         }
@@ -654,7 +765,7 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
                                     self.map_literal_expr(top.clone(), expr, v, map)?,
 
                                 _ => {
-                                    self.hierarchy.reporter.report_mismatch_value_traversal(
+                                    self.hierarchy.report_mismatch_value_traversal(
                                         each.clone(),
                                         "",
                                         expr
@@ -664,7 +775,7 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
                         }
                     },
                     rest => {
-                        self.hierarchy.reporter.report_missing_value(
+                        self.hierarchy.report_missing_value(
                             rest,
                             "",
                             expr
@@ -681,7 +792,7 @@ impl<'c, 'v, 'r> Visitor<'v> for QueryHandler<'c, 'v, 'r> {
     }
 }
 
-impl<'c, 'v, 'r> QueryHandler<'c, 'v, 'r> {
+impl<'c, 'v> QueryHandler<'c, 'v> {
     fn map_key_value(&mut self,
                      top: ValueType<'v>,
                      expr: &'v Expr,
@@ -692,7 +803,7 @@ impl<'c, 'v, 'r> QueryHandler<'c, 'v, 'r> {
                 self.stack.push(ValueType::DataValue(value));
             }
             None => {
-                self.hierarchy.reporter.report_missing_value(
+                self.hierarchy.report_missing_value(
                     top,
                     "",
                     expr
@@ -729,7 +840,7 @@ impl<'c, 'v, 'r> QueryHandler<'c, 'v, 'r> {
             },
 
             _ => {
-                self.hierarchy.reporter.report_mismatch_value_traversal(
+                self.hierarchy.report_mismatch_value_traversal(
                     ValueType::LiteralValue(key),
                     "",
                     expr
@@ -750,12 +861,12 @@ mod query_tests;
 mod tests_common;
 
 
-struct AndBinaryOperationsHandler<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+struct AndBinaryOperationsHandler<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>,
     stack: Vec<ValueType<'v>>,
 }
 
-impl<'c, 'v, 'r> Visitor<'v> for BinaryOperationsHandler<'c, 'v, 'r> {
+impl<'c, 'v> Visitor<'v> for AndBinaryOperationsHandler<'c, 'v> {
     type Value = bool;
     type Error = EvaluationError<'v>;
 
@@ -769,7 +880,7 @@ impl<'c, 'v, 'r> Visitor<'v> for BinaryOperationsHandler<'c, 'v, 'r> {
 
             },
 
-            _ =>
+            _ => todo!()
         }
         todo!()
     }
@@ -779,12 +890,12 @@ impl<'c, 'v, 'r> Visitor<'v> for BinaryOperationsHandler<'c, 'v, 'r> {
     }
 }
 
-struct BinaryOperationsHandler<'c, 'v, 'r> {
-    hierarchy: &'c mut ScopeHierarchy<'v, 'r>,
+struct BinaryOperationsHandler<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>,
     stack: Vec<ValueType<'v>>,
 }
 
-impl<'c, 'v, 'r> Visitor<'v> for BinaryOperationsHandler<'c, 'v, 'r> {
+impl<'c, 'v> Visitor<'v> for BinaryOperationsHandler<'c, 'v> {
     type Value = bool;
     type Error = EvaluationError<'v>;
 
@@ -812,7 +923,7 @@ impl<'c, 'v, 'r> Visitor<'v> for BinaryOperationsHandler<'c, 'v, 'r> {
             _ => SingleOrQuery::Single(ValueType::LiteralValue(&value.rhs))
         };
 
-        Ok(check_operator(value.operator, expr, lhs_query, rhs_query, self.hierarchy.reporter)?)
+        Ok(check_operator(value.operator, expr, lhs_query, rhs_query, self.hierarchy)?)
     }
 
 
@@ -826,7 +937,7 @@ fn check_operator<'v>(
     , binop: &'v Expr
     , lhs: SingleOrQuery<'v>
     , rhs: SingleOrQuery<'v>
-    , reporter: &mut dyn EvalReporter<'v>) -> Result<bool, EvaluationError<'v>>
+    , reporter: &mut dyn ScopeHierarchy<'v>) -> Result<bool, EvaluationError<'v>>
 {
     let mut result = true;
     match lhs {
@@ -913,7 +1024,7 @@ fn check_literal_operator<'v>(
     , binop: &'v Expr
     , literal: &'v Expr
     , rhs: &Vec<ValueType<'v>>
-    , reporter: &mut dyn EvalReporter<'v>) -> Result<bool, EvaluationError<'v>>
+    , reporter: &mut dyn ScopeHierarchy<'v>) -> Result<bool, EvaluationError<'v>>
 {
     let mut result = true;
     for each in rhs {
@@ -1066,3 +1177,148 @@ fn match_in_both_values<'v>(
     }
 }
 
+#[derive(Debug)]
+struct TrackReportMissing<'p, 'v> {
+    missing: bool,
+    parent: &'p mut dyn ScopeHierarchy<'v>
+}
+
+impl<'p, 'v> ScopeHierarchy<'v> for TrackReportMissing<'p, 'v> {
+    fn get_root(&mut self) -> &'v Value {
+        self.parent.get_root()
+    }
+
+    fn get_parent(&mut self) -> Option<&mut dyn ScopeHierarchy<'v>> {
+        Some(self.parent)
+    }
+}
+
+impl<'p, 'v> EvalReporter<'v> for TrackReportMissing<'p, 'v> {
+    fn report_missing_value(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), Error> {
+        self.missing = true;
+        self.parent.report_missing_value(until, data_file_name, expr)
+    }
+
+    fn report_mismatch_value_traversal(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), Error> {
+        self.missing = true;
+        self.parent.report_mismatch_value_traversal(until, data_file_name, expr)
+    }
+
+    fn report_evaluation(&mut self, status: Status, comparison: Comparison<'v>, data_file: &'v str, expr: &'v Expr) -> Result<(), Error> {
+        self.parent.report_evaluation(status, comparison, data_file, expr)
+    }
+}
+
+//
+// Unary functions
+//
+struct UnaryOperations<'c, 'v> {
+    hierarchy: &'c mut dyn ScopeHierarchy<'v>,
+    stack: Vec<ValueType<'v>>,
+}
+
+impl<'c, 'v> Visitor<'v> for UnaryOperations<'c, 'v> {
+    type Value = bool;
+    type Error = EvaluationError<'v>;
+
+    fn visit_unary_operation(self, _expr: &'v Expr, value: &'v UnaryExpr) -> Result<Self::Value, Self::Error> {
+        match &value.expr {
+            binop @ Expr::BinaryOperation(_) if value.operator == UnaryOperator::Not => {
+                return if binop.accept(BinaryOperationsHandler{hierarchy: self.hierarchy, stack: self.stack})? {
+                    Ok(false)
+                }
+                else {
+                    Ok(true)
+                }
+            },
+
+            select @ Expr::Select(_) => {
+                let (values, missing) = {
+                    let mut tracker = TrackReportMissing { missing: false, parent: self.hierarchy };
+                    let values = select.accept(QueryHandler{ hierarchy: &mut tracker, stack: self.stack})?;
+                    (values, tracker.missing)
+                };
+                return Ok(check_unary_operator(values, value.operator, self.hierarchy) && missing)
+            }
+
+            _ => todo!()
+        }
+        todo!()
+    }
+
+    fn visit_any(self, expr: &'v Expr) -> Result<Self::Value, Self::Error> {
+        todo!()
+    }
+}
+
+macro_rules! is_type_check {
+    ($name: ident, $data: pat, $literal: pat) => {
+        fn $name<'v>(vec: Vec<ValueType<'v>>, eval: &mut dyn ScopeHierarchy<'v>) -> bool {
+            !vec.is_empty() &&
+                vec.iter().all(|elem| match elem {
+                    ValueType::DataValue(data) => match data {
+                        $data => true,
+                        _ => false,
+                    },
+                    ValueType::LiteralValue(literal) => match literal {
+                        $literal => true,
+                        _ => false
+                    }
+                })
+        }
+    };
+}
+
+is_type_check!(match_is_string, Value::String(..), Expr::String(_));
+is_type_check!(match_is_float, Value::Float(..), Expr::Float(_));
+is_type_check!(match_is_bool, Value::Bool(..), Expr::Bool(_));
+is_type_check!(match_is_int, Value::Int(..), Expr::Int(_));
+is_type_check!(match_is_regex, Value::Regex(..), Expr::Regex(_));
+is_type_check!(match_is_null, Value::Null(..), Expr::Null(_));
+is_type_check!(match_is_range_float, Value::RangeFloat(..), Expr::RangeFloat(_));
+is_type_check!(match_is_range_int, Value::RangeInt(..), Expr::RangeInt(_));
+
+is_type_check!(match_is_list, Value::List(..), Expr::Array(_));
+is_type_check!(match_is_map, Value::Map(..), Expr::Map(_));
+
+
+fn check_unary_operator<'v>(vec: Vec<ValueType<'v>>, operation: UnaryOperator, eval: &mut dyn ScopeHierarchy<'v>) -> bool {
+    match operation {
+        UnaryOperator::Exists => !vec.is_empty(),
+        UnaryOperator::Empty => match_empty(vec),
+
+        UnaryOperator::NotExists => vec.is_empty(),
+        UnaryOperator::NotEmpty => !match_empty(vec),
+
+        UnaryOperator::IsString => match_is_string(vec, eval),
+        UnaryOperator::IsList => match_is_list(vec, eval),
+        UnaryOperator::IsMap => match_is_map(vec, eval),
+        UnaryOperator::IsInt => match_is_int(vec, eval),
+        UnaryOperator::IsFloat => match_is_float(vec, eval),
+        UnaryOperator::IsBool => match_is_bool(vec, eval),
+        UnaryOperator::IsRegex => match_is_regex(vec, eval),
+
+        UnaryOperator::IsNotString => !match_is_string(vec, eval),
+        UnaryOperator::IsNotList => !match_is_list(vec, eval),
+        UnaryOperator::IsNotMap => !match_is_map(vec, eval),
+        UnaryOperator::IsNotInt => !match_is_int(vec, eval),
+        UnaryOperator::IsNotFloat => !match_is_float(vec, eval),
+        UnaryOperator::IsNotBool => !match_is_bool(vec, eval),
+        UnaryOperator::IsNotRegex => !match_is_regex(vec, eval),
+
+        _ => false
+    }
+}
+
+fn match_empty(vec: Vec<ValueType<'_>>) -> bool {
+    vec.is_empty() ||
+        vec.iter().all(|elem| match elem {
+            ValueType::DataValue(Value::List(l, _)) => l.is_empty(),
+            ValueType::DataValue(Value::String(s, _)) => s.is_empty(),
+            ValueType::DataValue(Value::Map(m, _)) => m.is_empty(),
+            ValueType::LiteralValue(Expr::String(s)) => s.value.is_empty(),
+            ValueType::LiteralValue(Expr::Array(a)) => a.elements.is_empty(),
+            ValueType::LiteralValue(Expr::Map(m)) => m.entries.is_empty(),
+            _ => false
+        })
+}

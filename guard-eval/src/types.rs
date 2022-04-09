@@ -129,6 +129,7 @@ pub struct UnaryComparison<'v> {
     pub argument: ValueType<'v>
 }
 
+#[derive(Debug, Clone, Serialize)]
 pub enum Comparison<'v> {
     Binary(BinaryComparison<'v>),
     Unary(UnaryComparison<'v>),
@@ -139,20 +140,20 @@ pub trait EvalReporter<'value> : Debug {
         &mut self,
         until: ValueType<'value>,
         data_file_name: &'value str,
-        expr: &'value Expr) -> Result<(), EvaluationError<'value>>;
+        expr: &'value Expr) -> Result<(), std::io::Error>;
 
     fn report_mismatch_value_traversal(
         &mut self,
         until: ValueType<'value>,
         data_file_name: &'value str,
-        expr: &'value Expr) -> Result<(), EvaluationError<'value>>;
+        expr: &'value Expr) -> Result<(), std::io::Error>;
 
     fn report_evaluation(
         &mut self,
         status: Status,
         comparison: Comparison<'value>,
         data_file: &'value str,
-        expr: &'value Expr) -> Result<(), EvaluationError<'value>>;
+        expr: &'value Expr) -> Result<(), std::io::Error>;
 }
 
 #[derive(Debug)]

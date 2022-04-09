@@ -397,9 +397,11 @@ dependencies = [
 name = "guard-eval"
 version = "2.1.0"
 dependencies = [
+ "Inflector",
  "anyhow",
  "guard-lang",
  "indexmap",
+ "lazy_static",
  "regex",
  "serde",
  "serde_json",

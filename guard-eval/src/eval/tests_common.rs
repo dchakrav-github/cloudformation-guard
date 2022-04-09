@@ -9,7 +9,7 @@ impl<'value> EvalReporter<'value> for NoOpReporter {
                             _until: ValueType<'value>,
                             _data_file_name: &'value str,
                             _expr: &'value Expr)
-        -> Result<(), EvaluationError<'value>> {
+        -> Result<(), std::io::Error> {
         Ok(())
     }
 
@@ -17,7 +17,7 @@ impl<'value> EvalReporter<'value> for NoOpReporter {
                                        _until: ValueType<'value>,
                                        _data_file_name: &'value str,
                                        _expr: &'value Expr)
-        -> Result<(), EvaluationError<'value>> {
+        -> Result<(), std::io::Error> {
         Ok(())
     }
 
@@ -26,7 +26,7 @@ impl<'value> EvalReporter<'value> for NoOpReporter {
 		 comparison: Comparison<'value>,
 		 data_file: &'value str,
 		 expr: &'value Expr) -> Result<(),
-		 EvaluationError<'value>> {
+		 std::io::Error> {
         Ok(())
     }
 }

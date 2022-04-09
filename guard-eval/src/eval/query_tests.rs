@@ -10,7 +10,7 @@ fn test_simple_query() {
     assert_eq!(value.is_ok(), true);
     let value = value.unwrap();
     let mut reporter = NoOpReporter{};
-    let mut hierarchy = ScopeHierarchy {
+    let mut hierarchy = RootScopeHierarchy {
         reporter: &mut reporter,
         roots: &value,
         scopes: Vec::new(),
@@ -66,16 +66,16 @@ fn test_simple_query_missing_values() {
     #[derive(Debug)]
     struct Reporter{}
     impl<'v> EvalReporter<'v> for Reporter {
-        fn report_missing_value(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), EvaluationError<'v>> {
+        fn report_missing_value(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), std::io::Error> {
             assert_eq!(matches!(until, ValueType::DataValue(Value::Map(..))), true);
             Ok(())
         }
 
-        fn report_mismatch_value_traversal(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), EvaluationError<'v>> {
+        fn report_mismatch_value_traversal(&mut self, until: ValueType<'v>, data_file_name: &'v str, expr: &'v Expr) -> Result<(), std::io::Error> {
             todo!()
         }
 
-        fn report_evaluation(&mut self, status: Status, comparison: Comparison<'v>, data_file: &'v str, expr: &'v Expr) -> Result<(), EvaluationError<'v>> {
+        fn report_evaluation(&mut self, status: Status, comparison: Comparison<'v>, data_file: &'v str, expr: &'v Expr) -> Result<(), std::io::Error> {
             todo!()
         }
     }
@@ -84,7 +84,7 @@ fn test_simple_query_missing_values() {
     let query = query.unwrap().1;
     let mut stack = Vec::new();
     let mut reporter = Reporter{};
-    let mut hierarchy = ScopeHierarchy {
+    let mut hierarchy = RootScopeHierarchy {
         reporter: &mut reporter,
         roots: &value,
         scopes: Vec::new(),
@@ -123,7 +123,7 @@ fn test_binary_comparison() {
     assert_eq!(cmp.is_ok(), true, "{:?}", cmp);
     let cmp = cmp.unwrap().1;
     let mut reporter = NoOpReporter{};
-    let mut hierarchy = ScopeHierarchy {
+    let mut hierarchy = RootScopeHierarchy {
         reporter: &mut reporter,
         roots: &value,
         scopes: Vec::new(),
@@ -137,4 +137,56 @@ fn test_binary_comparison() {
     let result = cmp.accept(binop);
     assert_eq!(result.is_ok(), true, "{:?}", result);
     assert_eq!(result.unwrap(), true);
+
+    let binary_cmp = r#"Resources.*.Properties.Principal[*] != '*'"#;
+    let cmp = guard_lang::parse_unary_binary_or_block_expr(Span::new_extra(binary_cmp, ""));
+    assert_eq!(cmp.is_ok(), true, "{:?}", cmp);
+    let cmp = cmp.unwrap().1;
+    let mut reporter = NoOpReporter{};
+    let mut hierarchy = RootScopeHierarchy {
+        reporter: &mut reporter,
+        roots: &value,
+        scopes: Vec::new(),
+        completed: Vec::new()
+    };
+
+    let binop = BinaryOperationsHandler {
+        hierarchy: &mut hierarchy,
+        stack: Vec::new()
+    };
+    let result = cmp.accept(binop);
+    assert_eq!(result.is_ok(), true, "{:?}", result);
+    assert_eq!(result.unwrap(), false);
+}
+
+#[test]
+fn test_binary_operators() {
+    let value = r###"
+    PARAMETERS:
+       allowed_ports: [600, 800]
+    Resources:
+      sgs:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+          ingress:
+            - From: 10
+              To: 100
+              Cidr: 0.0.0.0/0
+    "###;
+
+    let value = crate::value_internal::read_from(value).unwrap();
+    let expr = guard_lang::parse_select(Span::new_extra("PARAMETERS.AllowedPorts", "")).unwrap().1;
+    let mut reporter = NoOpReporter{};
+    let mut hierarchy = RootScopeHierarchy {
+        reporter: &mut reporter,
+        roots: &value,
+        scopes: Vec::new(),
+        completed: Vec::new()
+    };
+    let values = expr.accept(QueryHandler{stack: vec![ValueType::DataValue(&value)], hierarchy: &mut hierarchy});
+    assert_eq!(values.is_ok(), true, "{:?}", values);
+    let values = values.unwrap();
+    assert_eq!(values.len(), 1);
+    assert_eq!(matches!(values.get(0), Some(ValueType::DataValue(Value::List(..)))), true);
+
 }
